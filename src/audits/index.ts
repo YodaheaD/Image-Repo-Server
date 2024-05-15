@@ -6,6 +6,7 @@ import { masterTableFinal } from "../db/masterdata";
 export const auditRouter = express.Router();
 
 import multer from "multer";
+import Logger from "../utils/logger";
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -21,6 +22,28 @@ auditRouter.use(express.urlencoded({ extended: true }));
 // for parsing multipart/form-data
 auditRouter.use(upload.single("data"));
 auditRouter.use(express.static("public"));
+
+// serve All Audits or last 10
+auditRouter.get("/getAudits/:type", async (req, res) => {
+  const { type } = req.params;
+  let data: any = await auditsTable.myGetData();
+
+  Logger.info(`Returning Audit Data`);
+
+  // only return the following: id(RowKey), auditTime, auditType, auditor, imageName, auditApprover
+  let returnData = data.map((item: any) => {
+    return {
+      id: item.RowKey,
+      auditTime: item.auditTime,
+      auditType: item.auditType,
+      auditor: item.auditor,
+      imageName: item.imageName,
+      auditApprover: item.auditApprover,
+    };
+  });
+
+  res.send(returnData);
+});
 
 auditRouter.post("/changeData", async (req, res) => {
   try {

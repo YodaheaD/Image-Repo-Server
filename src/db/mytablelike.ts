@@ -120,96 +120,61 @@ export default class TableLike<Type extends TableEntity<object>> {
     return this.client?.listEntities<Type>();
   }
 
+  private async initialize() {
+    Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
+
+    const checkCache = myCache.get(`dataCache${this.tableName}`);
+    if (checkCache) {
+      Logger.info(`${this.tableName} - Cache Found, returning Cache!`);
+
+      return checkCache;
+    } else {
+      Logger.warn(`${this.tableName} - No Cache Found for table ....`);
+      const client = TableClient.fromConnectionString(
+        connectionString,
+        this.tableName
+      );
+      const entities = await client.listEntities();
+      let holder: any[] = [];
+      for await (const entity of entities) {
+        // remove etag
+        const { etag, ...filteredData } = entity;
+        holder.push(filteredData);
+      }
+      Logger.info(
+        `${this.tableName} - Done pulling data found ${holder.length} entries, Setting the  Cache ....  `
+      );
+
+      // Save the latest data into cache
+      myCache.set(`dataCache${this.tableName}`, holder, 10000);
+
+      Logger.info(
+        `${this.tableName} - Done setting cache, Returning data from table \n`
+      );
+      return holder;
+    }
+  }
+
   // -> 'myGetData()'
   // * Function for getting all data entries from Azure Table.
 
   public async myGetData() {
     switch (this.tableName) {
       case "masterFinal": {
-        Logger.warn(`Searching for ${this.tableName} Cache ....`);
-
-        const checkCache = myCache.get(`dataCache${this.tableName}`);
-        if (checkCache) {
-          Logger.info(`Cache Found, returning ${this.tableName} Cache!`);
-
-          return checkCache;
-        } else {
-          Logger.warn(`No Cache Found for ${this.tableName} table ....`);
-          const client = TableClient.fromConnectionString(
-            connectionString,
-            this.tableName
-          );
-          const entities = await client.listEntities();
-          let holder: any[] = [];
-          for await (const entity of entities) {
-            // remove etag
-            const { etag, ...filteredData } = entity;
-            holder.push(filteredData);
-          }
-          Logger.info(
-            `Done pulling ${this.tableName} data found ${holder.length} entries, Setting the  Cache ....  `
-          );
-
-          // Save the latest data into cache
-          myCache.set(`dataCache${this.tableName}`, holder, 10000);
-
-          Logger.info(
-            ` Done setting cache, Returning data from ${this.tableName} table`
-          );
-          return holder;
-        }
+        return this.initialize();
+        break;
       }
       case "authJWT": {
-        // First, check if cache is available
-        Logger.warn(`Searching for ${this.tableName} Cache ....`);
-        // if (myCache.has(`dataCacheitems`)) {
-        //   Logger.info(`Cache Found, returning ${this.tableName} Cache!`);
-        //   return myCache.get(`dataCacheitems`);
-        // } else {
-        // If no cache is available, pull data from Azure table
-        const checkCache = myCache.get(`dataCache${this.tableName}`);
-        if (checkCache) {
-          Logger.info(`Cache Found, returning ${this.tableName} Cache!`);
-
-          return checkCache;
-        } else {
-          Logger.warn(
-            `No Cache Found for ${this.tableName}, pulling data from Azure table ....`
-          );
-          const client = TableClient.fromConnectionString(
-            connectionString,
-            this.tableName
-          );
-          // Getting all entities/data from the table
-          const entities = await client.listEntities();
-          // pushing all data into array 'holder' which is then filtered
-          let holder: any[] = [];
-
-          for await (const entity of entities) {
-            holder.push(entity);
-          }
-          Logger.info(
-            `Done pulling ${this.tableName} data found ${holder.length} entries, Setting the  Cache ....  `
-          );
-
-          // Save the latest data into cache
-          myCache.set(`dataCache${this.tableName}`, holder, 10000);
-
-          Logger.info(
-            ` Done setting cache, Returning data from ${this.tableName} table`
-          );
-          return holder;
-          /// }
-          break;
-        }
+        return this.initialize();
+        break;
       }
 
       case "tagsdata": {
-        return this.listEntities();
+        return this.initialize();
         break;
       }
       case "audits": {
-        return this.listEntities();
+        return this.initialize();
         break;
       }
       default:
@@ -346,7 +311,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         return "Error creating audit";
       }
     } else if (type === "Delete") {
-      console.log(` Creating Audit for Delete: ${newdata.imageName}`)
+      console.log(` Creating Audit for Delete: ${newdata.imageName}`);
       if (this.tableName === "audits") {
         const rowKey = `RKey-${newdata.imageName}-${unixTime}-Delete-${newdata.auditor}`;
         const entity: auditsTypes = {
@@ -364,7 +329,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         };
 
         try {
-           await this.client?.createEntity(entity);
+          await this.client?.createEntity(entity);
           return "Audit Created";
         } catch (error) {
           console.log(` ERROR creating audit for Rowkey: ${rowKey}+ ${error}`);

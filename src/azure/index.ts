@@ -191,16 +191,11 @@ azureRouter.get(
   }
 );
 
-// -> '/getByUUID/:uuid' - get Images by the uuid
-azureRouter.get("/getByUUID/:uuid", async (req: Request, res: Response) => {
-  // const { uuid } = req.params;
-  //  res.send(response[0]);
-}); //
-
 // -> '/imgupload/:...' - upload image to blob storage
 azureRouter.post(
   // "/imgupload/:imageMeta/:uploaderName",
   "/uploadImage",
+  getToken,
   upload.array("monfichier"),
   async (req: Request, res: Response) => {
     // check if req.files is empty
@@ -217,35 +212,38 @@ azureRouter.post(
     // Send response back to client
   }
 );
-//
-// ********** Admin functions ( work in prog ) **********
-// -> Admins currenlty have ability to UPDATE and DELETE existing data
+const randomimage = (alreadyUsed: any, current: any, length: any) => {
+  const filterAlreadyUsed = current.filter((item: any) => {
+    return !alreadyUsed.includes(item);
+  });
 
-// -> This route recieves a id in request body and deletes entry at id.
-azureRouter.delete("/Delete/:name", async (req: Request, res: Response) => {
-  const { name } = req.params;
-  const mes = await masterTableFinal.myDeleteData(name);
-  res.json(mes);
-});
-//
-/// This route is for updating data in the table
-azureRouter.put("/update/:tablename", async (req: Request, res: Response) => {
-  // ge ttbalename form req.params
-  const { tablename } = req.params;
-  const { data } = req.body;
-  switch (tablename) {
-    case "imagemap": {
-      // const d = await imageMapTable.myUpdateData(data);
-      // res.send(d);
+  const returndata = filterAlreadyUsed[Math.floor(Math.random() * length)];
 
-      break;
-    }
-    default:
-      Logger.error(` Cannot update table ${tablename}`);
-      res.send(` Cannot update table ${tablename}`);
-      break;
+  return returndata;
+};
+azureRouter.get("/RandomImage", async (req: Request, res: Response) => {
+  let used: any = [];
+  const masterdata: any = await masterTableFinal.myGetData();
+  if (!masterdata) {
+    res.status(404).send("Error fetching data from Storage");
+  }
+
+  // theres a column called dateTaken in unix, I want the fice latest values of dateTaken
+  if (masterdata.length < 5) {
+    const sortByDateTaken = masterdata.sort(
+      (a: any, b: any) => b.dateTaken - a.dateTaken
+    ).map((item: any) => item.imageName);
+    return res.send(sortByDateTaken);
+  } else {
+    const sortByDateTaken = masterdata
+      .sort((a: any, b: any) => b.dateTaken - a.dateTaken)
+      .slice(0, 5).map((item: any) => item.imageName);
+    const firstFiveElements = sortByDateTaken.slice(0, 5);
+    res.send(firstFiveElements);
   }
 });
+////
+// ********** Admin functions ( work in prog ) **********
 
 azureRouter.get("/unapproved", async (req: Request, res: Response) => {
   const data = await masterTableFinal.getUnapprovedImages();
@@ -265,12 +263,4 @@ azureRouter.post("/admin/approve", async (req: Request, res: Response) => {
   }
   const data = await masterTableFinal.approveImages(imagename, user);
   res.send(data);
-});
-
-// I have a function checkImagesList that takes a filename string and checks if it exists in the blob storage
-// I need a small api to test this function
-azureRouter.post("/checkImage", async (req: Request, res: Response) => {
-  const { data } = req.body;
-  const resList = await masterTableFinal.checkImagesList(data);
-  res.send(resList);
 });
