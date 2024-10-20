@@ -16,8 +16,11 @@ export interface masterMap2Props {
   tags: string;
   uploader: string;
   approvedBy: string;
+  notes: string;
   dateTaken?: string;
   folder?: string;
+  filetype: string;
+  imagePath: string;
 }
 
 export interface tagsMapProps {
@@ -31,15 +34,17 @@ export interface imageMapProps {
   rowKey: string;
   imageName: string;
   description: string;
-  notes:string;
+  notes: string;
   tags: string;
   uploader: string;
   approvedBy: string;
   dateTaken?: string;
   folder?: string;
-}
+} 
 
- export const masterTableFinal = new TableLike<masterMap2Props>("masterFinal");
+export const masterTableFinal = new TableLike<masterMap2Props>("masterFinal");
+export const YodaheaTable = new TableLike<masterMap2Props>(
+  "YodaheaTable"
+); 
 export const tagsTable = new TableLike<tagsMapProps>("tagsdata");
 //export const imageMapTable = new TableLike<imageMapProps>("imagemap");
-

@@ -73,7 +73,7 @@ export class BlobLike {
     return await (await blobClient).downloadToBuffer();
   }
 
-  // -> Reciving a multer with mutiple files and uploading them to the blob
+  // -> Reciving a multer with mutiple files and uploading them to the blob 
   public async uploadMulter(files: any) {
     const containerClient = client.getContainerClient(this.containerName);
 
@@ -82,6 +82,12 @@ export class BlobLike {
       const blobClient = containerClient.getBlockBlobClient(file.originalname);
       await blobClient.uploadData(file.buffer);
     }
+  }
+
+  // Uplaod a single buffer
+  public async uploadBuffer(name: string, buffer: Buffer) {
+    const blobClient = await this.getClient(name);
+    await blobClient.uploadData(buffer);
   }
 
   public async deleteBlob(name: string) {

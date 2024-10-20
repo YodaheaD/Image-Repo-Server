@@ -32,7 +32,7 @@ const formatMessage = (info:any) => {
   else if(message.includes('Done')||message.includes('Found')){
     holder = 'Success'
   }
-  else if(message.includes('Logging')||message.includes('Token')||message.includes('token')||message.includes('Auth')||message.includes('auth')){
+  else if(message.includes('Logging')||message.includes('Auth')||message.includes('auth')){
     holder = 'Auth'
   }
   else if(message.includes('admin')||message.includes('Admin')){

@@ -5,6 +5,7 @@ export interface auditsTypes {
   rowKey: string;
   auditTime: string;
   imageName: string;
+  imagePath:string
   description: string;
   auditor: string;
   approvedBy: string;

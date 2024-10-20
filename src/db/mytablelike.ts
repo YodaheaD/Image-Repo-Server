@@ -5,13 +5,8 @@ import { isEmpty, partition } from "lodash";
 import NodeCache from "node-cache";
 import { decodeUser, imageFolderAssignment } from "../utils/helpers";
 import { pusherServer } from "../utils/pusher";
-import { v4 as uuidv4 } from "uuid";
-import {
-  BlobServiceClient,
-  StorageSharedKeyCredential,
-} from "@azure/storage-blob";
-import { UploadProps, masterMapProps } from "../utilities/types";
-import { newimages } from "./blobs";
+
+import { deletedBucket, newimages, yodaheaBucket } from "./blobs";
 import { masterMap2Props } from "./masterdata";
 import { auditsTypes } from "./audits";
 
@@ -19,18 +14,8 @@ const connectionString = "UseDevelopmentStorage=true";
 
 // Create a node cache
 const myCache = new NodeCache();
-interface userinfoProps {
-  username: string;
-  token: string;
-}
-// Function to decode token
-const decode = (token: any) =>
-  decodeURIComponent(
-    atob(token.split(".")[1].replace("-", "+").replace("_", "/"))
-      .split("")
-      .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
-      .join("")
-  );
+ 
+ 
 
 export default class TableLike<Type extends TableEntity<object>> {
   private client?: TableClient;
@@ -39,14 +24,11 @@ export default class TableLike<Type extends TableEntity<object>> {
     public readonly tableName: string,
     public tableData?: any,
     public table1Data?: any,
-    public authJWT1Data?: any,
     public tableStats?: any,
-    public tableColumns?: any,
-    public authUsersList?: any
+    public tableColumns?: any
   ) {
     this.client = TableClient.fromConnectionString(connectionString, tableName);
     this.createTable();
-    this.authUsersList = this.getAuthorizedTable();
     this.myGetData();
   }
 
@@ -60,7 +42,7 @@ export default class TableLike<Type extends TableEntity<object>> {
    * -> 'myGetData()'
    * Function for getting all data entries from Azure Table. 
    *
-   * -> 'myDeleteData()' & 'getSingleData()' & 'myUpdateData()'
+   * -> 'fullDeleteProcess()' & 'getSingleData()' & 'myUpdateData()'
    * Function for deleting, updating, getting single data entries at specific id in Azure Table.
    * 
 
@@ -70,57 +52,19 @@ export default class TableLike<Type extends TableEntity<object>> {
    * -> getCacheSummary()
    * Function to return all cached values in table.
    * 
-   * -> getAuthorizedTable()
-   * Function to for gathering authenticated users from Azure Table.
-   * 
-   * -> verifyWAzure()
-   * Function to verify an Azure Oauth User.
-   * 
-   * -> updateAuthJWTdata()
-   * This function bridges the Oauth login with the Azure Table.
+ 
    * 
    * -> updateCacheData()
    * Function to update the cache when a change in data occurs.
-   * 
-   *  Authentication Functions
-   * ______________________
-   * 
-   * 
-   * -> `fullAuthCheck()` & 'verifyWAzure()'
-   * Functions for local and Azure Active Directory authentication.
-   * 
-   * 
-   * -> 'provideToken()' and 'provideTokenNoAuth()'
-   * Function to verify username and password then provide saved token data.
-   * 
-   * -> 'updateToken()' and 'updateTokenNoAuth()'
-   * Function to update token data.   
-   *  
-   * -> 'checkUserPassword()'
-   * Checks if the password entered by the user matches the password in the database.
-   * 
-   * -> 'checkUserExists()'
-   * Function that checks if username exists already.
-   * 
+  
    * 
    */
-
-  // Function to add entity to table
-  // public async insertEntity(entity: Type) {
-  //   const newent = JSON.stringify(entity);
-  //   const parsed = JSON.parse(newent);
-  //   Logger.info(`Inserting entity to ${this.tableName} table :
-  //   ${JSON.stringify(parsed)}
-  //  `);
-  //   await this.client?.createEntity(entity).catch(this.catcher); //
-  // } //
 
   //  Function to List entities (not functional yet, use myGetData())
   public listEntities() {
     return this.client?.listEntities<Type>();
   }
-
-  private async initialize() {
+  private async initializeMaster() {
     Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
 
     const checkCache = myCache.get(`dataCache${this.tableName}`);
@@ -129,20 +73,31 @@ export default class TableLike<Type extends TableEntity<object>> {
 
       return checkCache;
     } else {
-      Logger.warn(`${this.tableName} - No Cache Found for table ....`);
+      Logger.warn(
+        `${this.tableName} - No Cache Found for table, pulling data and building cache ....`
+      );
       const client = TableClient.fromConnectionString(
         connectionString,
         this.tableName
       );
       const entities = await client.listEntities();
       let holder: any[] = [];
+
       for await (const entity of entities) {
         // remove etag
+        delete entity.date_Taken;
+
         const { etag, ...filteredData } = entity;
         holder.push(filteredData);
       }
+
+      // Sort holder by dateTaken
+      holder = holder.sort((a, b) => {
+        return Number(a.dateTaken) - Number(b.dateTaken);
+      });
+
       Logger.info(
-        `${this.tableName} - Done pulling data found ${holder.length} entries, Setting the  Cache ....  `
+        `${this.tableName} -  Done pulling data, sorting..... found ${holder.length} entries, Building the  Cache ....  `
       );
 
       // Save the latest data into cache
@@ -154,18 +109,119 @@ export default class TableLike<Type extends TableEntity<object>> {
       return holder;
     }
   }
+  private async initialize() {
+    Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
+
+    const checkCache = myCache.get(`dataCache${this.tableName}`);
+    if (checkCache) {
+      Logger.info(`${this.tableName} - Cache Found, returning Cache!`);
+
+      return checkCache;
+    } else {
+      Logger.warn(
+        `${this.tableName} - No Cache Found for table, pulling data and building cache ....`
+      );
+      const client = TableClient.fromConnectionString(
+        connectionString,
+        this.tableName
+      );
+      const entities = await client.listEntities();
+      let holder: any[] = [];
+
+      for await (const entity of entities) {
+        // remove etag
+
+        const { etag, ...filteredData } = entity;
+        holder.push(filteredData);
+      }
+      Logger.info(
+        `${this.tableName} -  Done pulling data found ${holder.length} entries, Building the  Cache ....  `
+      );
+
+      // Save the latest data into cache
+      myCache.set(`dataCache${this.tableName}`, holder, 10000);
+
+      Logger.info(
+        `${this.tableName} - Done setting cache, Returning data from table \n`
+      );
+      return holder;
+    }
+  }
+  private async searchData(search: string) {
+    Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    // make all images lowercase
+
+    const searchResult = currentCache.filter((element: any) => {
+      const tempelement = element.imageName.toLowerCase();
+      return tempelement.includes(search.toLowerCase());
+    });
+    if (searchResult.length === 0) {
+      Logger.error(`No results found for ${search}`);
+      return "No results found";
+    }
+    return searchResult;
+  }
 
   // -> 'myGetData()'
   // * Function for getting all data entries from Azure Table.
 
   public async myGetData() {
+    // if no search is provided, return all data
+
     switch (this.tableName) {
       case "masterFinal": {
-        return this.initialize();
+        Logger.warn(`Getting data for ${this.tableName} table ....`);
+
+        const intialData: any = await this.initializeMaster();
+        let noDates = intialData.filter(
+          (item: any) => item.dateTaken === "No Date"
+        );
+
+        let masterData = intialData.filter(
+          (item: any) => item.dateTaken !== "No Date"
+        );
+
+        masterData = masterData.sort(
+          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+        );
+
+        masterData = masterData.concat(noDates);
+
+        masterData.forEach((item: any) => {
+          item.dateTaken = String(item.dateTaken);
+        });
+
+        return masterData;
+
+        //return this.initializeMaster();
         break;
       }
-      case "authJWT": {
-        return this.initialize();
+      case "YodaheaTable": {
+        Logger.warn(`Getting data for ${this.tableName} table ....`);
+
+        const intialData: any = await this.initializeMaster();
+        let noDates = intialData.filter(
+          (item: any) => item.dateTaken === "No Date"
+        );
+
+        let masterData = intialData.filter(
+          (item: any) => item.dateTaken !== "No Date"
+        );
+
+        masterData = masterData.sort(
+          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+        );
+
+        masterData = masterData.concat(noDates);
+
+        masterData.forEach((item: any) => {
+          item.dateTaken = String(item.dateTaken);
+        });
+
+        return masterData;
+
+        //return this.initializeMaster();
         break;
       }
 
@@ -183,31 +239,122 @@ export default class TableLike<Type extends TableEntity<object>> {
       // return "Error getting data";
     }
   }
+  public async myGetDataLimit(start: number, limit: number) {
+    // if no search is provided, return all data
 
-  // -> 'getSingleData()'
-  // * Function for getting single data entries from Azure Table.
-  // Currently only used when checking user password.
-  public async GetSingleData(username: string) {
-    const entity: any = await this.client?.getEntity(
-      "PKey-" + username,
-      "RKey-" + username
-    );
-    try {
-      const currentUsername = entity.username;
-      const currentPassword = entity.password;
-      const TableToken = entity.token;
-      return entity;
-    } catch (error) {
-      Logger.error(error);
+    switch (this.tableName) {
+      case "masterFinal": {
+        Logger.warn(
+          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit} ....`
+        );
+
+        const intialData: any = await this.initializeMaster();
+        let noDates = intialData.filter(
+          (item: any) => item.dateTaken === "No Date"
+        );
+
+        let masterData = intialData.filter(
+          (item: any) => item.dateTaken !== "No Date"
+        );
+
+        masterData = masterData.sort(
+          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+        );
+
+        masterData = masterData.concat(noDates);
+
+        masterData.forEach((item: any) => {
+          item.dateTaken = String(item.dateTaken);
+        });
+
+        const finalData = masterData.slice(start, start + limit);
+
+        return finalData;
+
+        //return this.initializeMaster();
+        break;
+      }
+      case "YodaheaTable": {
+        Logger.warn(
+          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit} ....`
+        );
+
+        const intialData: any = await this.initializeMaster();
+        let noDates = intialData.filter(
+          (item: any) => item.dateTaken === "No Date"
+        );
+
+        let masterData = intialData.filter(
+          (item: any) => item.dateTaken !== "No Date"
+        );
+
+        masterData = masterData.sort(
+          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+        );
+
+        masterData = masterData.concat(noDates);
+
+        masterData.forEach((item: any) => {
+          item.dateTaken = String(item.dateTaken);
+        });
+
+        const finalData = masterData.slice(start, start + limit);
+
+        return finalData;
+
+        //return this.initializeMaster();
+        break;
+      }
+
+      case "tagsdata": {
+        return this.initialize();
+        break;
+      }
+      case "audits": {
+        return this.initialize();
+        break;
+      }
+      default:
+        Logger.error("Invalid tablename: " + this.tableName);
+        return "Error: Invalid tablename";
+      // return "Error getting data";
     }
-    return "ERROR getting data";
+  }
+  public async mySearchData(search: string) {
+    return this.searchData(search);
   }
 
-  // -> 'myDeleteData()'
+  public async getExactDataByImageName(imageName: string) {
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    const searchResult = currentCache.filter(
+      (element: any) => element.imageName === imageName
+    );
+    if (searchResult.length === 0) {
+      Logger.error(`No results found for ${imageName}`);
+      return "No results found";
+    }
+    return searchResult;
+  }
+  public async numberOfImages() {
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    return currentCache.length;
+  }
+
+  // -> 'basicDeleteProcess()'
   // Function for deleting entries at specific id in Azure Table.
-  public async myDeleteData(entity: any) {
+  public async basicDeleteProcess(entity: any) {
+    await this.client?.deleteEntity(entity.partitionKey, entity.rowKey);
+    return "Success Deleting";
+  }
+
+ 
+  // -> 'fullDeleteProcess()'
+  // Function for deleting entries at specific id in Azure Table.
+  public async fullDeleteProcess(entity: any) {
     const deleteid = entity.imageName;
     Logger.warn(`Deleting data  ${entity.imageName}`);
+
+    // archive the image by uploading its data into the deletedImages bucket
 
     try {
       await newimages.deleteBlob(entity.imageName);
@@ -275,23 +422,26 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
     }
   }
-
+  //
   public async auditHandler(type: string, newdata: any, oldData?: any) {
     const unixTime = new Date().getTime();
 
     if (!newdata) {
       return "Error: No data recieved in the request";
     }
+    //
+
     if (type === "Update") {
       if (this.tableName === "audits") {
-        const rowKey = `RKey-${newdata.imageName}-${unixTime}-Update-${newdata.auditor}`;
+        const rowKey = `RKey-${newdata.imagePath}-${unixTime}-Update-${newdata.auditor}`;
         const entity: auditsTypes = {
-          partitionKey: `Audits-${newdata.imageName}`,
+          partitionKey: `audits`,
           rowKey: rowKey,
           auditTime: unixTime.toString(),
           imageName: newdata.imageName,
           description: newdata.description,
-          auditor: newdata.uploader,
+          auditor: newdata.auditor,
+          imagePath: newdata.imagePath,
           approvedBy: newdata.approvedBy,
           auditApprover: "Unapproved",
           auditType: "Update",
@@ -302,6 +452,11 @@ export default class TableLike<Type extends TableEntity<object>> {
         try {
           console.log(` Inserting Audit for Rowkey: ${rowKey}`);
           await this.client?.createEntity(entity);
+
+          // // Now update the cahce
+          // const current: any = myCache.get(`dataCache${this.tableName}`);
+          // const newData = [...current, newdata];
+          // myCache.set(`dataCache${this.tableName}`, newData, 10000);
           return "Audit Created";
         } catch (error) {
           console.log(` ERROR creating audit for Rowkey: ${rowKey}+ ${error}`);
@@ -321,6 +476,7 @@ export default class TableLike<Type extends TableEntity<object>> {
           imageName: newdata.imageName,
           description: newdata.description,
           auditor: newdata.uploader,
+          imagePath: newdata.imagePath,
           approvedBy: newdata.approvedBy,
           auditApprover: "Unapproved",
           auditType: "Delete",
@@ -330,236 +486,142 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         try {
           await this.client?.createEntity(entity);
+
+          // Now update the Cache so we keep it up to date by insertin gthe new entity
+          const current: any = myCache.get(`dataCache${this.tableName}`);
+          const newData = [...current, newdata];
+          myCache.set(`dataCache${this.tableName}`, newData, 10000);
           return "Audit Created";
         } catch (error) {
           console.log(` ERROR creating audit for Rowkey: ${rowKey}+ ${error}`);
-          return "Error creating audit";
         }
 
-        return "Audit Created";
+        try {
+          const buf = await newimages.downloadBuffer(entity.imageName);
+          Logger.warn(` Archiving image: ${entity.imageName}`);
+          await deletedBucket.uploadBuffer(rowKey, buf);
+          Logger.info(` Done Archiving image: ${entity.imageName}`);
+        } catch (error) {
+          Logger.error(` Error Archiving image: ${error}`);
+        }
+      } //
+    } else if (type === "Upload") {
+      const actualData = newdata;
+      const listofFile = oldData;
+      console.log(` Received Data: ${JSON.stringify(actualData)}`);
+      const fileslIst = listofFile.map((item: any) => item.originalname);
+      console.log(` Received Files: ${JSON.stringify(fileslIst)}`);
+      /**
+       * [1]  Received Data: {"description":"A tower in Chap castle's garden.","imageName":"Chapultepec_Castle_Garden_Tower","notes":"","tags":"mexico, mexico city, castle","dateTaken":"1716350400000","imagePath":"IMG_0519.JPEG","filetype":"jpeg","uploader":"yodaheadaniel@live.com"}
+[1]  Received Files: ["IMG_0519.JPEG","IMG_0548.JPEG"]
+       */
+      if (this.tableName === "audits") {
+        const rowKey = `RKey-${actualData.imagePath}-${unixTime}-Upload-${actualData.uploader}`;
+        const entity: auditsTypes = {
+          partitionKey: `Audits`,
+          rowKey: rowKey,
+          auditTime: unixTime.toString(),
+          imageName: actualData.imageName,
+          description: actualData.description,
+          auditor: actualData.uploader,
+          imagePath: actualData.imagePath,
+          approvedBy: actualData.approvedBy,
+          auditApprover: "Unapproved",
+          auditType: "Upload",
+          previousValue: JSON.stringify(fileslIst),
+          newValue: "", // JSON.stringify(actualData),
+        };
+
+        try {
+          await this.client?.createEntity(entity);
+
+          // Now update the Cache so we keep it up to date by insertin gthe new entity
+          const current: any = myCache.get(`dataCache${this.tableName}`);
+          const newData = [...current, actualData];
+          myCache.set(`dataCache${this.tableName}`, newData, 10000);
+          return "Audit Created";
+        } catch (error) {
+          console.log(` ERROR creating audit for Rowkey: ${rowKey}+ ${error}`);
+        }
       }
     }
   }
+
   async updateEntity(entity: any) {
+    console.log(` Recived Entity for updating: ` + entity.imageName);
     try {
-      delete entity.auditor;
+      // Valid fields , remove the blacklisted fields
+      const blacklistedFields = [
+        "etag",
+        "partitionKey",
+        "rowKey",
+        "timestamp",
+        "auditor",
+        // "dateTaken",
+        "approvedBy",
+        "folder",
+        "filetype",
+        "uploader",
+        "imagePath",
+      ];
+      const entityKeys = Object.keys(entity);
+      const filteredKeys = entityKeys.filter(
+        (item) => !blacklistedFields.includes(item)
+      );
+      const filteredData: any = {};
+      filteredKeys.forEach((key) => {
+        filteredData[key] = entity[key];
+      });
+      const buildRowKey = entity.rowKey;
+      console.log(` Using Rowkye ${buildRowKey}`);
       // Now also update the Cache so we keep it up to date
       const current: any = myCache.get(`dataCache${this.tableName}`);
       const findOldEntry = current.find(
-        (element: any) => element.rowKey === entity.rowKey
+        (element: any) => element.rowKey === buildRowKey
       );
-      // move the folder, dateTaken and timestamp to new entity
+
+      if (!findOldEntry) {
+        return "Error";
+      }
       const newEntity = {
-        ...entity,
+        partitionKey: "masterFinal",
+        rowKey: buildRowKey,
+        ...filteredData,
+        // dateTaken: findOldEntry.dateTaken,
+        imagePath: findOldEntry.imagePath,
         folder: findOldEntry.folder,
-        date_Taken: findOldEntry.dateTaken,
-        timestamp: "",
+        approvedBy: findOldEntry.approvedBy,
+        uploader: findOldEntry.uploader,
+        filetype: findOldEntry.filetype,
       };
+
+      // console.log(
+      //   ` Ising New Entity: ${JSON.stringify(
+      //     newEntity
+      //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
+      // );
+      // move the folder, dateTaken and timestamp to new entity
+      // const newEntity = {
+      //   ...entity,
+      //   folder: findOldEntry.folder,
+      //   dateTaken: findOldEntry.dateTaken,
+      //   auditor: findOldEntry.auditor,
+      // };
       await this.client?.updateEntity(newEntity);
 
       const deleteOld = current.filter(
-        (element: any) => element.rowKey !== entity.rowKey
+        (element: any) => element.rowKey !== buildRowKey
       ); //
       const newCache = [...deleteOld, newEntity];
       myCache.set(`dataCache${this.tableName}`, newCache, 10000);
+      Logger.info(` Done updating entity: ${entity.imageName}`);
       return "Success";
     } catch (error) {
-      console.log(` ERROR updating entity: ${error}`);
+      console.log(` ERROR in Table, updating entity: ${error}`);
       return "Error";
     }
   }
   //// Azure Functions ////
-
-  // -> verifyWAzure()
-  // * Function to verify an Azure Oauth User
-  // Process is as follows:
-  /*
-   1) Function receives token from user then decodes contents
-   2) First the username is checked from a list of authorized users, cache is available
-   3) If valid, function then compares token received to token in database,
-       * token is being updated via http request from client, using next-auth
-   4) If valid, function returns true, else returns false. */
-  async verifyWAzure(token: any) {
-    Logger.warn(`Verifying token...`);
-    if (myCache.has(`authUsersCache`)) {
-      try {
-        // This code is used when cache is available
-        Logger.http(
-          `Token recieved by Auth function: \n\n${
-            token /**.slice(0, 10) */
-          } \n\n`
-        );
-        // 1) Function receives token from user then decodes contents
-        const decodedData: any = decode(token);
-        const userData = JSON.parse(decodedData);
-        const authUsersList: any = myCache.get(`authUsersCache`);
-
-        // 2) First the username is checked from a list of authorized users
-        Logger.http(`Searching cache for user email: ${userData.email}`);
-        const userCheck = authUsersList.find(
-          (element: any) => element === userData.email
-        );
-
-        //  3) If valid, function then compares token received to token in database,
-        if (userCheck) {
-          Logger.http(`User Found! verifying token...`);
-          const entity: any = await this.client?.getEntity(
-            "PKey-" + userData.email,
-            "RKey-" + userData.email
-          ); //  console.log(`Token in DB: ${token}`)
-
-          // 4) If valid, function returns true, else returns false.
-          if (token === entity.token) {
-            Logger.http(
-              `Token verified! All checks complete! Providing access to data...`
-            );
-            return true;
-          } else {
-            // This is the case when the token is not valid
-            Logger.error(`ERROR: Error verifying token!`);
-            return "Token invalid";
-          }
-        } else {
-          // This is the case when the user is not found in authoized users list
-          Logger.error(`User Not Found, token invalid!`);
-          return "User Not Found";
-        }
-      } catch (error) {
-        // This is the case when the token could not be decoded
-        Logger.error(`ERROR: Could not decode token!`);
-        return "Token invalid!";
-      }
-    } else {
-      // This code is used when cache is NOT available
-      Logger.warn(
-        `No cache found for ${this.tableName}, pulling data from Azure...`
-      );
-
-      // We call on this function getAuthorizedTable() to get auth users and build a cache for us to use.
-      this.getAuthorizedTable();
-      Logger.info(
-        `Done pulling data from Auth table and creating cache. \n beginning verification...`
-      );
-      try {
-        // Now we execute the same code as above
-
-        // 1) Function receives token from user then decodes contents
-        const decodedData: any = decode(token);
-        const userData = JSON.parse(decodedData);
-        const authUsersList: any = myCache.get(`authUsersCache`);
-
-        // 2) First the username is checked from a list of authorized users
-        Logger.warn(`Searching cache for user email: ${userData.email}`);
-        const userCheck = authUsersList.find(
-          (element: any) => element === userData.email
-        );
-
-        //  3) If valid, function then compares token received to token in database,
-        if (userCheck) {
-          Logger.info(`User Found! verifying token...`);
-          const entity: any = await this.client?.getEntity(
-            "PKey-" + userData.email,
-            "RKey-" + userData.email
-          ); //  console.log(`Token in DB: ${token}`)
-
-          // 4) If valid, function returns true, else returns false.
-          if (token === entity.token) {
-            Logger.info(
-              `Token verified! All checks complete! Providing access to data...`
-            );
-            return true;
-          } else {
-            // This is the case when the token is not valid
-            Logger.error(`ERROR: Error verifying token!`);
-            return "Token invalid";
-          }
-        } else {
-          // This is the case when the user is not found in authoized users list
-          Logger.error(`User Not Found, token invalid!`);
-          return "User Not Found";
-        }
-      } catch (error) {
-        // This is the case when the token could not be decoded
-        Logger.error(`ERROR: Could not decode token!`);
-        return "Token invalid!";
-      }
-    }
-  }
-
-  // -> updateAuthJWTdata() - This function bridges the Oauth login with the Azure Table
-  // This function is used in the route called by the client Oauth middleware.
-  // When the client signs in with Oauth, the client sends the token to the server.
-  // --: If user is found in the authJWT table, the token is updated.
-  // --: If user is not found in the authJWT table, a new user is created.
-  async updateAuthJWTdata(userinfo: any) {
-    Logger.http("Logging in Microsoft user ...");
-
-    // Gathering the client information from the token
-    const decodedData: any = decode(userinfo);
-    const userData = JSON.parse(decodedData);
-    Logger.warn(`Checking token of client: ${userData.email}`);
-
-    const partitionKey = "PKey-" + userData.email;
-    const rowKey = "RKey-" + userData.email;
-
-    try {
-      // This code is completed if the user is found in the authJWT table
-      Logger.http("Updating token...");
-
-      const entityToUpdate = {
-        partitionKey: partitionKey,
-        rowKey: rowKey,
-        token: userinfo, // Replace the token in table with the current value of the property
-        isLoggedIn: "Logged In",
-      };
-      await this.client?.updateEntity(entityToUpdate);
-      Logger.http("Success updating token.");
-    } catch (error) {
-      // This code is completed if the user is NOT found in the authJWT table
-      Logger.warn(
-        "ERROR: User not found ... \n *** Creating new user instead ***"
-      );
-      try {
-        // Creating a new user in the authJWT table
-        await this.client?.createEntity({
-          partitionKey: partitionKey,
-          rowKey: rowKey,
-          username: userData.email,
-          password: "password",
-          hashed: "password",
-          token: userinfo,
-          isLoggedIn: "Logged In",
-        });
-        Logger.info(`Done creating new user: ${userData.email}`);
-        // Using pusher server set the new username and token to the client
-        const username = userData.email;
-        // await pusherServer.trigger("my_channel", "my_event", {
-        //   data: { username, userinfo },
-        // }); ////
-        return {
-          response: {
-            message: "Success",
-            token: userinfo,
-            username: username,
-          },
-        };
-      } catch (error) {
-        // Error for failure to create a user in the table
-        Logger.error("ERROR: Failed to create new user.");
-        return "Error";
-      }
-    }
-
-    // Once all is done display the users email
-    Logger.info(`Updating data with username ${userData.email} `);
-    return {
-      response: {
-        message: "Success",
-        token: userinfo,
-        username: userData.email,
-      },
-    };
-  }
 
   // -> updateCacheData() - Function to update the cache when a change in data occurs.
   async updateCacheData(type: string, entity: any) {
@@ -571,7 +633,7 @@ export default class TableLike<Type extends TableEntity<object>> {
           // Create a object to push into cache
 
           const fakeEntity = {
-            date_Taken: entity.date_Taken,
+            dateTaken: entity.dateTaken,
             title: entity.title,
             description: entity.description,
             tags: entity.tags,
@@ -610,23 +672,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     } //
   }
 
-  //// ********** Authentication Functions ********** ////
-  // -> 'checkUserExists()'
-  // Function that accepts RKey and PKey to check if entry exists at position.
-  public async checkUserExists(username: string) {
-    let ErrorMessage = "ERROR -> Not found";
-    let Checker = false;
-    try {
-      const entity: any = await this.client?.getEntity(
-        "PKey-" + username,
-        "RKey-" + username
-      );
-      Checker = true;
-      return Checker;
-    } catch (error) {
-      return false;
-    }
-  }
+  //// ********** Helper Functions ********** ////
 
   // -> 'myUpdateData()'
   // Function for updating entries at specific id in Azure Table.
@@ -635,275 +681,64 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
   }
 
-  // -> 'checkUserPassword()'
-  //-> Check if user and password match, returns true if they do.
-  public async checkUserPassword(username: string, password: string) {
-    let usernameData: any[] = [];
-    let passwordData: any[] = [];
-    const client = TableClient.fromConnectionString(
-      connectionString,
-      this.tableName
-    );
-    let userCheck = false;
-    let passwCheck = false;
-
-    const entities = await client.listEntities();
-    // Pushing entity data into an Array
-
-    for await (const entity of entities) {
-      usernameData.push(entity.username);
-      passwordData.push(entity.password);
+  public async renameImage(oldName: string, newName: string) {
+    let checkCache: any = myCache.get(`dataCachemasterFinal`);
+    if (!checkCache) {
+      checkCache = this.myGetData();
     }
 
-    // Use .find method to check if username exists in the array
-    if (usernameData.find((element) => element === username)) {
-      userCheck = true;
+    let getMatch = checkCache.find(
+      (element: any) => element.imageName === oldName
+    );
+    if (!getMatch) {
+      return "Error: No Match Found";
+    }
+
+    getMatch.imageName = newName;
+
+    try {
+      await this.client?.updateEntity(getMatch);
+    } catch (error) {
+      Logger.error(` Error updating entity: ${error}`);
+      return "Error updating entity";
+    }
+    // update cache
+    const currentCache: any = myCache.get(`dataCachemasterFinal`);
+    const deleteOld = currentCache.filter(
+      (element: any) => element.rowKey !== getMatch.rowKey
+    );
+    const newCache = [...deleteOld, getMatch];
+    myCache.set(`dataCachemasterFinal`, newCache, 10000);
+    return "Success";
+  }
+
+  public async serveImage(imageName: string, tableName: string) {
+    // the imageName will not have the extension so we need to find it in the masterFinal table first
+    // assume the cache is already set
+    if (tableName === "Yodahea") {
+      const currentCache: any = myCache.get(`dataCacheYodaheaTable`);
+
+      const materialMatch = currentCache.find(
+        (element: any) => element.imageName === imageName
+      );
+      const constructSearch = materialMatch.imagePath;
+      const searchBlob = await yodaheaBucket.downloadBuffer(constructSearch);
+      if (!searchBlob) {
+        return "Error: Image not found";
+      }
+      return searchBlob;
     } else {
-      userCheck = false;
-    }
+      const currentCache: any = myCache.get(`dataCachemasterFinal`);
 
-    // Use the now verified Username to get the password from the table
-    // -- and compared it to user's input password. If they match --> verified.
-    const entity: any = await this?.GetSingleData(username);
-    //Logger.info("Entity: "+JSON.stringify(entity))
-
-    if (entity.password === password) {
-      Logger.http(" Password Check Validated !");
-      passwCheck = true;
-    } else {
-      passwCheck = false;
-    }
-
-    // Final check to see if both username and password are verified.
-    const FinalDesc = userCheck && passwCheck; //Logger.warn(`UserCheck: ${userCheck} PasswCheck: ${passwCheck} \n FinalDesc: ${FinalDesc}`)
-
-    return FinalDesc; //return [{ (userCheck, passwCheck) }];
-  }
-  // -> 'provideToken()'
-  //-> Function to verify username and password then provide saved token data.
-  public async provideToken(username: string, password: string) {
-    let ErrorMessage = "ERROR -> Not found";
-    try {
-      const entity: any = await this.client?.getEntity(
-        "PKey-" + username,
-        "RKey-" + username
+      const materialMatch = currentCache.find(
+        (element: any) => element.imageName === imageName
       );
-      let dbPassword = entity.password;
-      let dbToken = entity.token;
-
-      if (password === dbPassword) {
-        // return `The username :${entity.username}\n\nThe password :${entity.password}\n\nThe token :${entity.token}`;
-        let message = "Success";
-        return { dbToken, message };
-      } else {
-        let message = "WrongPassword";
-        return { message };
+      const constructSearch = materialMatch.imagePath;
+      const searchBlob = await newimages.downloadBuffer(constructSearch);
+      if (!searchBlob) {
+        return "Error: Image not found";
       }
-    } catch (error) {
-      let message = "User not found";
-      return { message };
-    }
-  }
-  // -> 'provideTokenNoAuth()'
-  // Function for providing token With no authentication, used internally only.
-  public async provideTokenNoAuth(username: string) {
-    let ErrorMessage = "ERROR -> Not found";
-    try {
-      const entity: any = await this.client?.getEntity(
-        "PKey-" + username,
-        "RKey-" + username
-      );
-      let dbPassword = entity.password;
-      let dbToken = entity.token;
-
-      if (entity) {
-        // return `The username :${entity.username}\n\nThe password :${entity.password}\n\nThe token :${entity.token}`;
-        let message = "Success";
-        return { dbToken, message };
-      }
-    } catch (error) {
-      let message = "User not found";
-      return { message };
-    }
-  }
-
-  // -> 'updateToken()'
-  // Function to update token data
-  public async updateToken(
-    usernameInput: string,
-    passwordInput: string,
-    NewToken: string
-  ) {
-    if (
-      (await this.checkUserPassword(usernameInput, passwordInput)) === false
-    ) {
-      return "Auth Failed";
-    }
-    // Define the entity to update
-    const partitionKey = "PKey-" + usernameInput;
-    const rowKey = "RKey-" + usernameInput;
-    try {
-      const entityToUpdate = {
-        partitionKey: partitionKey,
-        rowKey: rowKey,
-        token: NewToken, // Replace with the current value of the property
-        isLoggedIn: "Logged In",
-      };
-      await this.client?.updateEntity(entityToUpdate);
-    } catch (error) {
-      Logger.error("Error updating token to DB");
-      return "Error updating token to DB";
-    }
-    const { username, token }: any = await this.client?.getEntity(
-      partitionKey,
-      rowKey
-    );
-    //Logger.info(`Success -> ${username}'s Token updated: ${token}`);
-    return `Successful Update for ${username}'s Token: ${token}`;
-  }
-  // -> 'updateTokenNoAuth()'
-  // Function to update token data for deletion route. No authentication required.
-  public async updateTokenNoAuth(usernameInput: string) {
-    // Define the entity to update
-    const partitionKey = "PKey-" + usernameInput.replace(/\"/g, "");
-    const rowKey = "RKey-" + usernameInput.replace(/\"/g, "");
-
-    try {
-      const entityToUpdate = {
-        partitionKey: partitionKey,
-        rowKey: rowKey,
-        token: "unassigned", // Replace with the current value of the property
-        isLoggedIn: "LoggedOut",
-      };
-      await this.client?.updateEntity(entityToUpdate);
-    } catch (error) {
-      Logger.error("Error updating token to DB");
-      return "Error";
-    }
-
-    //
-    pusherServer.trigger("my_channel", "my_event", {
-      data: { username: "Login", token: "unassigned" },
-    });
-
-    const { username, token }: any = await this.client?.getEntity(
-      partitionKey,
-      rowKey
-    ); //
-    Logger.info(`Success -> ${username}'s Token updated: ${token}`);
-    return `Logout complete!`;
-  }
-
-  // -> Update has password
-  public async updateHashed(
-    usernameInput: string,
-    passwordInput: string,
-    NewHash: string
-  ) {
-    /** 
-  if (
-    (await this.checkUserPassword(usernameInput, passwordInput)) === false
-  ) {
-    return "Auth Failed";
-  }*/
-    // Define the entity to update
-    const partitionKey = "PKey-" + usernameInput;
-    const rowKey = "RKey-" + usernameInput;
-    try {
-      const entityToUpdate = {
-        partitionKey: partitionKey,
-        rowKey: rowKey,
-        hashed: NewHash, // Replace with the current value of the property
-      };
-      await this.client?.updateEntity(entityToUpdate);
-    } catch (error) {
-      Logger.error("Error updating token to DB");
-      return "Error updating token to DB";
-    }
-    const { username, hashed }: any = await this.client?.getEntity(
-      partitionKey,
-      rowKey
-    );
-    //Logger.info(`Success -> ${username}'s Token updated: ${token}`);
-    return `Successful Update for ${username}'s Hashed: ${hashed}`;
-  }
-
-  // -> 'provideHashed()'
-
-  public async provideHashed(username: string, password: string) {
-    let ErrorMessage = "ERROR -> Not found";
-    try {
-      const entity: any = await this.client?.getEntity(
-        "PKey-" + username,
-        "RKey-" + username
-      );
-      let dbPassword = entity.password;
-      let dbHashed = entity.hashed;
-
-      if (password === dbPassword) {
-        // return `The username :${entity.username}\n\nThe password :${entity.password}\n\nThe token :${entity.token}`;
-        let message = "Success";
-        return { dbHashed, message };
-      } else {
-        let message = "WrongPassword";
-        return { message };
-      }
-    } catch (error) {
-      let message = "User not found";
-      return { message };
-    }
-  }
-
-  // -> fullAuthCheck() - Method that handles all checks for authentication
-  async fullAuthCheck(token: any) {
-    // 1) Function receives token from user
-    // 2) CONTENTS of token then compared to the user info in the database
-    // 3) If valid, function compares token received to the last viable token distributed to that user
-    // All True, check complete
-
-    // -> 1) Function decodes token from user
-    const returnData = await decodeUser(token);
-
-    // -> 2) CONTENTS of token then compared to the user info in the database
-    const latestValidToken = await this.provideToken(
-      returnData.compareData.email,
-      returnData.compareData.password
-    );
-    Logger.warn(` Validating Token ...`);
-
-    // -> 3) If valid, function compares token recived to the last viable token distributed to that user
-    if (
-      latestValidToken.message === "Success" &&
-      latestValidToken.dbToken === token
-    ) {
-      Logger.warn(` Token Validated, all checks complete!`);
-      return "Check Complete";
-    } else {
-      Logger.error(` ERROR: Invalid Token!`);
-      return "Check Failed";
-    }
-  }
-
-  // -> getAuthorizedTable() - Function to for gathering authenticated users from Azure Table
-  async getAuthorizedTable() {
-    try {
-      const client = TableClient.fromConnectionString(
-        connectionString,
-        "authJWT"
-      );
-      // Getting all usernames from the table
-      const entities = await client.listEntities();
-      const authUsersList: any[] = [];
-      for await (const entity of entities) {
-        authUsersList.push(entity.username);
-      }
-      //Cache the Auth Users List
-      myCache.set(`authUsersCache`, authUsersList, 10000);
-      //Logger.http(`Auth Users List: ${authUsersList}`);
-      return authUsersList;
-    } catch (error) {
-      Logger.error(error);
-      return "Error getting data";
+      return searchBlob;
     }
   }
 
@@ -957,54 +792,104 @@ export default class TableLike<Type extends TableEntity<object>> {
     return newFileNames;
   }
 
-  public async newUploadProcess(ReqFiles: any, imageMeta: any) {
-    const dateTaken = imageMeta[0].date_Taken || "No Date";
-    const description = imageMeta[0].description || "No Description";
-    const fileNames = imageMeta[0].fileNames || [];
-    const uploaderName = imageMeta[0].uploaderName || "No Uploader";
-    const approvedBy = "Unapproved";
+  public async newUploadProcess(
+    ReqFiles: any,
+    imageMeta: any[],
+    tableName: string
+  ) {
+    // Now instead of one desc and meta data for one image, we will be recieving multiple images with there own meta data in an array
 
-    const tags = imageMeta[0].tags;
-
-    Logger.info(`\n Image Received !: 
-    -> Date Taken: ${dateTaken}
-   -> Description: ${description}
-   -> Uploader: ${imageMeta[0].uploaderName}
-   Files: ${JSON.stringify(fileNames)}`);
-
-    const arr: any = ReqFiles;
-    for (const file of arr) {
-      const entity: masterMap2Props = {
-        partitionKey: "masterFinal",
-        rowKey: "RKey-" + file.originalname,
-
-        imageName: file.originalname,
-        description: description,
-        tags: tags,
-        uploader: uploaderName,
-        approvedBy: approvedBy,
-        dateTaken: dateTaken,
-        folder: "",
-      };
-
-      await this.client?.createEntity(entity);
-      // Update the cache to keep it current
-      try {
-        const checkCache: any = myCache.get(`dataCache${this.tableName}`);
-        checkCache.push(entity);
-        myCache.set(`dataCache${this.tableName}`, checkCache, 10000);
-      } catch (error) {
-        Logger.error(
-          `Error updating cache: ${error} for Table ${this.tableName}`
-        );
-      }
-    }
-    console.log(
-      `\n Inserted new entities from User: ${uploaderName}, moving on to uploading data`
+    Logger.warn(
+      ` All Data recieved is : ${JSON.stringify(
+        imageMeta.map((item) => item.imagePath)
+      )}`
     );
 
-    // upload image data from multer to blob
-    await newimages.uploadMulter(ReqFiles);
+    const filenames = ReqFiles.map((item: any) => item.originalname);
+    Logger.warn(` All Files recieved is : ${JSON.stringify(filenames)}`);
+    const allFiles = ReqFiles;
+
+    const imagesArray = allFiles;
+
+    for (let images of imagesArray) {
+      const findData = imageMeta.find(
+        (element: any) => element.imagePath === images.originalname
+      ); //
+      if (!findData) {
+        Logger.error(` No Data Found for image: ${images.originalname}`);
+        return "Error: No Data Found";
+      }
+      console.log(` Data Found for image: ${images.originalname}`);
+      //
+
+      try {
+        let dateTaken = findData.dateTaken;
+        const description = findData.description;
+        const uploader = findData.uploader || "No User";
+        const notes = findData.notes;
+        const approvedBy = "Unapproved";
+        const filetype = findData.filetype;
+        const tags = findData.tags;
+        const imagePath = findData.imagePath;
+        const imageName = findData.imageName;
+        if (!dateTaken || dateTaken === "" || dateTaken === undefined) {
+          dateTaken = "No Date";
+        }
+
+        const entity: masterMap2Props = {
+          partitionKey: "masterFinal",
+          rowKey: "RKey-" + images.originalname.split(".")[0],
+          notes: notes,
+          imageName: imageName,
+          description: description,
+          tags: tags,
+          uploader: uploader,
+          approvedBy: approvedBy,
+          dateTaken: dateTaken,
+          folder: "",
+          filetype: filetype,
+          imagePath: images.originalname,
+        };
+
+        // Check if the entity already exists
+        let checkCache: any = myCache.get(`dataCache${this.tableName}`); //
+        if (!checkCache) {
+          checkCache = this.myGetData();
+        }
+        const checkEntity = checkCache.find(
+          (element: any) => element.rowKey === entity.rowKey
+        ); //
+        if (checkEntity) {
+          Logger.error(` Entity already exists: ${entity.rowKey}`);
+        } else {
+          // Insert the entity into the table
+          await this.client?.createEntity(entity);
+          console.log(` Inserting : ${JSON.stringify(entity)}`);
+          // Update the cache to keep it current
+          try {
+            const checkCache: any = myCache.get(`dataCache${this.tableName}`);
+            checkCache.push(entity);
+            myCache.set(`dataCache${this.tableName}`, checkCache, 10000);
+          } catch (error) {
+            Logger.error(
+              `Error updating cache: ${error} for Table ${this.tableName}`
+            );
+          }
+        }
+        console.log(
+          `\n Inserted new entities from User: ${uploader}, moving on to uploading data`
+        );
+      } catch (error) {
+        Logger.error(` Error creating entity: ${error}`);
+        return "Error creating entity";
+      }
+    }
+    // if the tableName is Yodahea
+    if (tableName === "Yodahea") {
+      await yodaheaBucket.uploadMulter(ReqFiles);
+    } else {
+      await newimages.uploadMulter(ReqFiles);
+    }
   }
   public async insertEntity(data: any) {
     if (!data.partitionKey || !data.rowKey) {
@@ -1017,19 +902,6 @@ export default class TableLike<Type extends TableEntity<object>> {
         Logger.error(`Error inserting : ${error}`);
         return `Error: ${error}`;
       }
-    }
-  }
-  public async getMapData() {
-    const cachedData = myCache.get(`dataCache${this.tableName}`);
-    if (cachedData) {
-      Logger.warn(`Cache Found for ${this.tableName} ....`);
-      return cachedData;
-    } else {
-      Logger.warn(`No Cache Found for ${this.tableName} ....`);
-      const data = await this.myGetData();
-      myCache.set(`mapCache${this.tableName}`, data, 10000);
-      Logger.info(`Done setting cache for ${this.tableName} ....`);
-      return data;
     }
   }
 
@@ -1049,6 +921,43 @@ export default class TableLike<Type extends TableEntity<object>> {
   }
 
   // **********  Helper Functions  ********** //
+
+  public async getFilters() {
+    const checkCache: any = myCache.get(`dataCache${this.tableName}Filters`);
+    if (checkCache) {
+      Logger.warn(`Cache Found for filters of table ${this.tableName} ....`);
+      return checkCache;
+    } else {
+      // get the tables cache
+      const dataCache: any = myCache.get(`dataCache${this.tableName}`);
+      let tags: any[] = [];
+      // if theres no cache, build it
+      if (!dataCache) {
+        Logger.error(
+          `No Cache Found for ${this.tableName}, cache must be set before using`
+        );
+        return [];
+      } else {
+        // make a set of all tags
+        dataCache.map((item: any) => {
+          let tagsSplit: any = item.tags
+            .split(",")
+            .filter((item: any) => item !== "");
+          // remove blank spaces from items
+          tagsSplit = tagsSplit.map((item: any) => item.trim());
+          // then sort alphabetically using localeCompare
+
+          tags.push(...tagsSplit);
+        });
+        tags = tags.sort((a, b) => a.localeCompare(b));
+        const setted = [...new Set(tags)];
+        // set the cache
+        myCache.set(`dataCache${this.tableName}Filters`, setted, 10000);
+
+        return setted;
+      }
+    }
+  }
 
   // -> 'getUnapprovedImages()' - this method reutnrs the data from table with the  'approvedBy' field as 'Unapproved'
   public async getUnapprovedImages() {
@@ -1084,7 +993,7 @@ export default class TableLike<Type extends TableEntity<object>> {
             );
             // onject needs a partitionKey and rowKey before updating
             item.partitionKey = "PKey-yodadata";
-            item.rowKey = "RKey-" + item.date_Taken;
+            item.rowKey = "RKey-" + item.dateTaken;
             await this.client?.updateEntity(item);
             // Update the cache
             this.updateCacheData("all", checkCache);

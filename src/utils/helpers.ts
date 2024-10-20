@@ -1,37 +1,9 @@
-import Jwt from "jsonwebtoken";
-import Logger from "./logger";
+ 
 import dotenv from "dotenv";
-import {  masterTableFinal } from "../db/masterdata";
-import { imageMapTable } from "../db/myimagemap";
+ 
 
 dotenv.config();
-// decodeUser() - Decodes user token.
-export async function decodeUser(Token: string) {
-  Logger.info(`Decoding Token contents......`);
-  try {
-    const decoded: any = Jwt.verify(Token, String(process.env.JWT_SECRET));
-    const compareData: any = {
-      email: decoded.user.email,
-      password: decoded.user.password,
-    };
-    Logger.info(`Token Contents Decoded !`);
-
-    return { compareData };
-  } catch (err) {
-    Logger.error(`Error Decoding Token: ${err}`);
-    return { email: "Error", password: "Error" };
-  }
-}
-
-export async function myDecode(token: string) {
-  token = decodeURIComponent(
-    atob(token.split(".")[1].replace("-", "+").replace("_", "/"))
-      .split("")
-      .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
-      .join("")
-  );
-  return token;
-}
+ 
 
 export async function FormatImageData(inputimage: any) {
   console.log(` Formatting : ${inputimage}`);
