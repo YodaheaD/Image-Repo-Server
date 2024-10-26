@@ -13,9 +13,6 @@ export class BlobLike {
   // -> Error Catcher
   private catcher(err: any) {
     Logger.error(`BlobLike: ${err.message}`);
-    if ((err.statusCode = !409)) {
-      throw err;
-    }
   }
 
   // -> Create Container
@@ -50,7 +47,8 @@ export class BlobLike {
     }
     return blobArray;
   }
-
+ 
+ 
   public async listImages() {
     const containerClient = client.getContainerClient(this.containerName);
     let blobArray: string[] = [];
@@ -73,7 +71,7 @@ export class BlobLike {
     return await (await blobClient).downloadToBuffer();
   }
 
-  // -> Reciving a multer with mutiple files and uploading them to the blob 
+  // -> Reciving a multer with mutiple files and uploading them to the blob
   public async uploadMulter(files: any) {
     const containerClient = client.getContainerClient(this.containerName);
 
@@ -86,6 +84,16 @@ export class BlobLike {
 
   // Uplaod a single buffer
   public async uploadBuffer(name: string, buffer: Buffer) {
+    // if the tablename is compressiontable then upload as we
+    if (this.containerName === "compressiontable") {
+      const blobClient = await this.getClient(name);
+      await blobClient.uploadData(buffer, {
+        blobHTTPHeaders: {
+          blobContentType: "image/webp",
+        },
+      });
+    }
+
     const blobClient = await this.getClient(name);
     await blobClient.uploadData(buffer);
   }

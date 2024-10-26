@@ -4,7 +4,7 @@ import express, { Response, Request, Router, NextFunction } from "express";
 import sharp from "sharp";
 import multer from "multer";
 import Logger from "../utils/logger";
-import { deletedBucket, newimages } from "../db/blobs";
+import { compressionBucket, deletedBucket, newimages } from "../db/blobs";
 import { pusherServer } from "../utils/pusher";
 import { masterTableFinal, YodaheaTable } from "../db/masterdata";
 import { auditsTable } from "../db/audits";
@@ -30,10 +30,8 @@ const upload = multer({
  * Routes List
  * ______________________
  *
- * 
+ *
  */
-
-
 
 // -> GET: return the column names from the table,
 // * Column names are not sensitive info
@@ -75,8 +73,6 @@ const pipeDeafultImage = async (res: any) => {
   }
 }; //
 
-
-
 /** Image Routes */
 // --> GET: serve an image from the storage
 mainRouter.get(
@@ -84,6 +80,11 @@ mainRouter.get(
   async (req: Request, res: Response) => {
     const { imagename } = req.params;
     const { tablename } = req.params || "Total";
+    // if any missing params return default image
+    if (!imagename || !tablename) {
+      Logger.error("No image name or table name provided");
+      pipeDeafultImage(res);
+    }
     if (tablename === "Yodahea") {
       try {
         const image = await YodaheaTable.serveImage(imagename, "Yodahea");
@@ -119,13 +120,58 @@ mainRouter.get(
     }
   }
 );
+mainRouter.get(
+  "/getCompressed/:imagename",
+  async (req: Request, res: Response) => {
+    const { imagename } = req.params;
+
+    try {
+      // const getImageData = await compressionBucket.downloadBuffer(imagename);
+
+      // if (!getImageData) {
+      //   Logger.error(
+      //     `Error fetching compressed image ${imagename} from storage`
+      //   );
+      //   res.status(400).send("No compressed image found");
+      // }
+      // const convert = stream.Readable.from(getImageData);
+      // res.setHeader("Content-Type", "image/jpeg");
+      // convert.pipe(res);
+      const getImageData = await YodaheaTable.serveCompressedImage(imagename);
+      if (!getImageData) {
+        Logger.error(
+          `Error fetching compressed image ${imagename} from storage`
+        );
+        res.status(400).send("No compressed image found");
+      }
+      const convert = stream.Readable.from(getImageData);
+      res.setHeader("Content-Type", "image/jpeg");
+      convert.pipe(res);
+    } catch (err) {
+      Logger.error(`Error fetching compressed image ${imagename} from storage`);
+      res.status(400).send("Error fetching compressed image");
+    }
+  }
+);
 
 /**  END OF IMAGES ROUTES */
 
+// Function for Pipeing the default image, located as favicon.ico in the compressedimages container
+const pipeDefaultImage = async (res: any) => {
+  const defaultImage = await compressionBucket.downloadBuffer("favicon.ico");
+  if (!defaultImage) {
+    Logger.error("No default image found");
+    res.send("No default image found");
+  } else {
+    const convert = stream.Readable.from(defaultImage);
+    res.setHeader("Content-Type", "image/jpeg");
+    convert.pipe(res);
+  }
+};
 // -> GET: get all data from Azure Table
 mainRouter.get(
   "/getAllData/:tablename",
- 
+
   async (req: Request, res: Response) => {
     const { tablename } = req.params;
     const { start, limit } = req.query;
@@ -175,7 +221,7 @@ mainRouter.get(
 // -> GET: get all data from Azure Table
 mainRouter.get(
   "/getData/:tableName/:imageName",
- 
+
   async (req: Request, res: Response) => {
     const { imageName } = req.params;
     const { tableName } = req.params;
@@ -252,7 +298,7 @@ mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
 mainRouter.post(
   // "/imgupload/:imageMeta/:uploaderName",
   "/uploadImage/:tablename",
-   upload.array("monfichier"),
+  upload.array("monfichier"),
   async (req: Request, res: Response) => {
     // check if req.files is empty
     if (!req.files || req.files.length === 0) {
@@ -301,7 +347,6 @@ mainRouter.get("/RandomImage", async (req: Request, res: Response) => {
     "Chap_Castle_Mural",
   ]);
 });
-
 
 mainRouter.post("/changeDataNew/:tableName", async (req, res) => {
   const { data } = req.body;
@@ -452,7 +497,7 @@ mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
           [field]: String(newValue),
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
-        try { 
+        try {
           const outcome = await YodaheaTable.updateEntity(newEntity);
           Logger.info(
             `Data Updated in Master for image ${entry} with field ${field}: ${newValue}`

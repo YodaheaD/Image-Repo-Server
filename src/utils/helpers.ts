@@ -37,3 +37,7 @@ export function imageFolderAssignment(useremail: any) {
 }
 
  
+// function that returns current time, in Unix time format in string
+export function getCurrentTime() {
+  return new Date().getTime().toString();
+}

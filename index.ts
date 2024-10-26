@@ -5,6 +5,7 @@ import { utilsRouter } from "./src/utilities";
 import cors from "cors";
 import { auditRouter } from "./src/audits";
 import { mainRouter } from "./src/main";
+import { checkCompression } from "./src/scripts/compression";
 //import { initilizeMapTable } from "./src/utils/helpers";
 
 /**
@@ -35,4 +36,5 @@ app.get("/", (req: Request, res: Response) => {
 
 app.listen(3030, async () => {
   Logger.http(`⚡️ Server is running at http://localhost:3030`); //
+ // await checkCompression();
 });

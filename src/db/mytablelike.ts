@@ -1,12 +1,15 @@
 import { TableClient, TableEntity, TableTransaction } from "@azure/data-tables";
 
 import Logger from "../utils/logger";
-import { isEmpty, partition } from "lodash";
+import { isEmpty } from "lodash";
 import NodeCache from "node-cache";
-import { decodeUser, imageFolderAssignment } from "../utils/helpers";
-import { pusherServer } from "../utils/pusher";
 
-import { deletedBucket, newimages, yodaheaBucket } from "./blobs";
+import {
+  compressionBucket,
+  deletedBucket,
+  newimages,
+  yodaheaBucket,
+} from "./blobs";
 import { masterMap2Props } from "./masterdata";
 import { auditsTypes } from "./audits";
 
@@ -14,8 +17,6 @@ const connectionString = "UseDevelopmentStorage=true";
 
 // Create a node cache
 const myCache = new NodeCache();
- 
- 
 
 export default class TableLike<Type extends TableEntity<object>> {
   private client?: TableClient;
@@ -224,6 +225,10 @@ export default class TableLike<Type extends TableEntity<object>> {
         //return this.initializeMaster();
         break;
       }
+      case "compressiontable": {
+        return this.initialize();
+        break;
+      }
 
       case "tagsdata": {
         return this.initialize();
@@ -347,7 +352,6 @@ export default class TableLike<Type extends TableEntity<object>> {
     return "Success Deleting";
   }
 
- 
   // -> 'fullDeleteProcess()'
   // Function for deleting entries at specific id in Azure Table.
   public async fullDeleteProcess(entity: any) {
@@ -740,6 +744,23 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
       return searchBlob;
     }
+  }
+  public async serveCompressedImage(imageName: string) {
+   // Logger.warn(` Serving Compressed Image: ${imageName}`);
+    const currentCache: any = await myCache.get(`dataCache`+this.tableName);
+    if (!currentCache) {
+      Logger.error(` Error: No Cache Found`);
+      return "Error: No Cache Found";
+    }
+    const materialMatch = currentCache.find(
+      (element: any) => element.imageName === imageName
+    );
+    const constructSearch = materialMatch.imagePath.split(".")[0];
+    const searchBlob = await compressionBucket.downloadBuffer(constructSearch);
+    if (!searchBlob) {
+      return "Error: Image not found";
+    }
+    return searchBlob;
   }
 
   // -> getImagesList()
