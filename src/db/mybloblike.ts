@@ -103,7 +103,7 @@ export class BlobLike {
       const blobClient = await this.getClient(name);
       await blobClient.delete();
     } catch (err) {
-      Logger.error(`Error deleting filename: ${name}+ ${err}`);
+      Logger.error(`Error deleting filename: ${name} + ${err}`);
     }
   }
 }

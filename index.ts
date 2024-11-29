@@ -6,6 +6,7 @@ import cors from "cors";
 import { auditRouter } from "./src/audits";
 import { mainRouter } from "./src/main";
 import { checkCompression } from "./src/scripts/compression";
+import { imagesRouter } from "./src/images";
 //import { initilizeMapTable } from "./src/utils/helpers";
 
 /**
@@ -15,6 +16,7 @@ import { checkCompression } from "./src/scripts/compression";
  * -> " Main Router " :  mainRouter
  * -> " Utilities Router " :  utilsRouter
  * -> " Audit Router " :  auditRouter
+ * -> " Images Router " :  imagesRouter
  * 
  */
 export const app: Express = express();
@@ -29,6 +31,7 @@ app.use(cors());
 app.use("/main", mainRouter);
 app.use("/utilities", utilsRouter);
 app.use("/audits", auditRouter);
+app.use("/images", imagesRouter);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello From Yodas Express + TypeScript Server");

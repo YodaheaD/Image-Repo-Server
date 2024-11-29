@@ -1,15 +1,44 @@
+/**
+ *  Main Router
+ * ----------------
+ *
+ *  -- For handling table data requests
+ *
+ * Routes:
+ * - GET: /getTableColumns/:tablename
+ * ** For returning the column names from the table
+ *
+ * - GET: /getAllData/:tablename
+ * ** For returning all data from the table
+ *
+ * - GET: /getData/:tableName/:imageName
+ * ** For returning a single data entry from the table
+ *
+ * - GET: /search/:tablename
+ * ** For searching for data in the table
+ *
+ * - POST: /changeDataNew/:tableName
+ * ** For changing data in the table
+ *
+ * - POST: /changeDataMultiple/:tableName/:field
+ * ** For changing multiple data entries in the table
+ *
+ * - GET: /getFilters/:tableName
+ * ** For returning the filters for the table
+ *
+ */
+
 import bodyParser from "body-parser";
 import cors from "cors";
-import express, { Response, Request, Router, NextFunction } from "express";
-import sharp from "sharp";
+import express, { Response, Request, Router } from "express";
 import multer from "multer";
 import Logger from "../utils/logger";
-import { compressionBucket, deletedBucket, newimages } from "../db/blobs";
-import { pusherServer } from "../utils/pusher";
+import { newimages } from "../db/blobs";
 import { masterTableFinal, YodaheaTable } from "../db/masterdata";
+import { logger } from "@azure/storage-blob";
+import dotenv from "dotenv";
 import { auditsTable } from "../db/audits";
-import stream from "stream";
-
+dotenv.config();
 export const mainRouter: Router = Router();
 
 mainRouter.use(cors());
@@ -17,24 +46,7 @@ mainRouter.use(express.json());
 mainRouter.use(bodyParser.json());
 mainRouter.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// - Multer
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 20000000,
-  },
-});
-///
-
-/**
- * Routes List
- * ______________________
- *
- *
- */
-
 // -> GET: return the column names from the table,
-// * Column names are not sensitive info
 mainRouter.get(
   "/getTableColumns/:tablename",
   async (req: Request, res: Response) => {
@@ -57,126 +69,18 @@ mainRouter.get(
   }
 );
 
-const pipeDeafultImage = async (res: any) => {
-  const deafiltsvg = await deletedBucket.downloadBuffer(
-    "default/default-image.jpg"
-  );
-  if (!deafiltsvg) {
-    Logger.error("No default image found");
-    res.send("No default image found");
-  } else {
-    // change the name of the image to the default image
-
-    const convert = stream.Readable.from(deafiltsvg);
-    res.setHeader("Content-Type", "image/jpeg");
-    convert.pipe(res);
-  }
-}; //
-
-/** Image Routes */
-// --> GET: serve an image from the storage
-mainRouter.get(
-  "/getImage/:imagename/:tablename",
-  async (req: Request, res: Response) => {
-    const { imagename } = req.params;
-    const { tablename } = req.params || "Total";
-    // if any missing params return default image
-    if (!imagename || !tablename) {
-      Logger.error("No image name or table name provided");
-      pipeDeafultImage(res);
-    }
-    if (tablename === "Yodahea") {
-      try {
-        const image = await YodaheaTable.serveImage(imagename, "Yodahea");
-
-        // Convert the image buffer to a ReadableStream
-        const convert2 = stream.Readable.from(image);
-
-        res.setHeader("Content-Type", "image/jpeg");
-        convert2.pipe(res);
-      } catch (err) {
-        // display the image from the url dont send it or else it just shows the url as text
-        Logger.error(
-          `Error fetching image Named " ${imagename} " from storage`
-        );
-        pipeDeafultImage(res);
-      }
-    } else {
-      try {
-        const image = await masterTableFinal.serveImage(imagename, "Total");
-
-        // Convert the image buffer to a ReadableStream
-        const convert2 = stream.Readable.from(image);
-
-        res.setHeader("Content-Type", "image/jpeg");
-        convert2.pipe(res);
-      } catch (err) {
-        // display the image from the url dont send it or else it just shows the url as text
-        Logger.error(
-          `Error fetching image Named " ${imagename} " from storage`
-        );
-        pipeDeafultImage(res);
-      }
-    }
-  }
-);
-mainRouter.get(
-  "/getCompressed/:imagename",
-  async (req: Request, res: Response) => {
-    const { imagename } = req.params;
-
-    try {
-      // const getImageData = await compressionBucket.downloadBuffer(imagename);
-
-      // if (!getImageData) {
-      //   Logger.error(
-      //     `Error fetching compressed image ${imagename} from storage`
-      //   );
-      //   res.status(400).send("No compressed image found");
-      // }
-      // const convert = stream.Readable.from(getImageData);
-      // res.setHeader("Content-Type", "image/jpeg");
-      // convert.pipe(res);
-      const getImageData = await YodaheaTable.serveCompressedImage(imagename);
-      if (!getImageData) {
-        Logger.error(
-          `Error fetching compressed image ${imagename} from storage`
-        );
-        res.status(400).send("No compressed image found");
-      }
-      const convert = stream.Readable.from(getImageData);
-      res.setHeader("Content-Type", "image/jpeg");
-      convert.pipe(res);
-    } catch (err) {
-      Logger.error(`Error fetching compressed image ${imagename} from storage`);
-      res.status(400).send("Error fetching compressed image");
-    }
-  }
-);
-
-/**  END OF IMAGES ROUTES */
-
-// Function for Pipeing the default image, located as favicon.ico in the compressedimages container
-const pipeDefaultImage = async (res: any) => {
-  const defaultImage = await compressionBucket.downloadBuffer("favicon.ico");
-  if (!defaultImage) {
-    Logger.error("No default image found");
-    res.send("No default image found");
-  } else {
-    const convert = stream.Readable.from(defaultImage);
-    res.setHeader("Content-Type", "image/jpeg");
-    convert.pipe(res);
-  }
-};
 // -> GET: get all data from Azure Table
 mainRouter.get(
-  "/getAllData/:tablename",
+  "/getAllData",
 
   async (req: Request, res: Response) => {
-    const { tablename } = req.params;
-    const { start, limit } = req.query;
-    const startPoint = start || 0;
-    const limitPoint = limit || 20;
+    const { start, limit, showUnmatched, tags, search, tablename } = req.query;
+    const startPoint = start || process.env.STARTPOINT;
+    const limitPoint = limit || process.env.MAXLIMIT;
+    const unmatchedChoice = showUnmatched === "true" ? true : false;
+    const tagsInput = tags ? String(tags).split(",") : [];
+    const searchInput = search ? String(search) : "";
+    logger.info(` Table is ${tablename} earch is ${searchInput}`);
     try {
       // Get table name from req and return data from there
       switch (tablename) {
@@ -194,22 +98,36 @@ mainRouter.get(
           const yodaimages = await newimages.listImages();
           res.send([masterData, yodaimages, totalEntries]);
           break;
-        case "masterFinalTotal":
-          let masterDataTotal: any = await YodaheaTable.myGetDataLimit(
-            Number(startPoint),
-            Number(limitPoint)
-          );
-
+        case "YodaheaTable":
+          logger.info(`Searching for ${searchInput}`);
+          let yodaData = [];
+          if (searchInput !== "") {
+            yodaData = await YodaheaTable.mySearchData(searchInput);
+          } else {
+            yodaData = await YodaheaTable.myGetDataLimit(
+              Number(startPoint),
+              Number(limitPoint),
+              unmatchedChoice
+            );
+          }
           let totalEntriesTotal = await YodaheaTable.numberOfImages();
           // Sort by dateTaken
           // Remove the any No Date values from masterData and append to the end
 
           //
           const yodaimagesTotal = await newimages.listImages();
-          res.send([masterDataTotal, yodaimagesTotal, totalEntriesTotal]);
+          if (unmatchedChoice === false) {
+            res.send([yodaData, yodaimagesTotal, totalEntriesTotal]);
+          } else {
+            const unmatchedNUm = await YodaheaTable.totalNumnberUnmatched();
+
+            res.send([yodaData, yodaimagesTotal, unmatchedNUm]);
+          }
+
           break;
+
         default:
-          Logger.error("Invalid Data Request for table");
+          Logger.error("Invalid Data Request for table for " + tablename);
           res.send("No valid table name provided");
           break; //
       }
@@ -218,19 +136,19 @@ mainRouter.get(
     } //
   }
 );
-// -> GET: get all data from Azure Table
+// -> GET: get  single data from Azure Table
 mainRouter.get(
   "/getData/:tableName/:imageName",
 
   async (req: Request, res: Response) => {
     const { imageName } = req.params;
     const { tableName } = req.params;
-    Logger.info(`Getting data for image ${imageName}`);
+    // Logger.info(`Getting data for image ${imageName}`);
     if (!imageName || !tableName) {
       res.status(400).send("No image name Or table name provided");
     }
     switch (tableName) {
-      case "Yodahea":
+      case "YodaheaTable":
         try {
           // Get table name from req and return data from there
 
@@ -268,12 +186,13 @@ mainRouter.get(
   }
 );
 
+// -> GET: search for data in the table
 mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
   const { tablename } = req.params;
   const checkForSearch = req.query.search;
   // get [object Object] so convert to string
   if (checkForSearch) {
-    console.log("searching for ", checkForSearch);
+    console.log(" In search, ", checkForSearch);
     const removeSearchFromTable = tablename
       .replace(String(checkForSearch), "")
       .replace("&", "");
@@ -285,6 +204,12 @@ mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
         res.send(masterData);
 
         break;
+      case "Yodahea":
+        const yodaData: any = await YodaheaTable.mySearchData(
+          String(checkForSearch)
+        );
+        res.send(yodaData);
+        break;
       default:
         Logger.error("Invalid Data Request for table");
         res.send("No valid table name provided");
@@ -294,60 +219,7 @@ mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
   }
 });
 
-// -> '/imgupload/:...' - upload image to blob storage
-mainRouter.post(
-  // "/imgupload/:imageMeta/:uploaderName",
-  "/uploadImage/:tablename",
-  upload.array("monfichier"),
-  async (req: Request, res: Response) => {
-    // check if req.files is empty
-    if (!req.files || req.files.length === 0) {
-      Logger.error("No files received in request. ");
-      return res.status(400).send("No files were received.");
-    }
-    const data: any = JSON.parse(req.body.data);
-
-    const { tablename } = req.params;
-
-    if (tablename === "Yodahea") {
-      await YodaheaTable.newUploadProcess(req.files, data, "Yodahea");
-    } else {
-      await masterTableFinal.newUploadProcess(req.files, data, "Total");
-    }
-    await auditsTable.auditHandler("Upload", data[0], req.files);
-    //
-    Logger.info(" Data added to table, All done!");
-    res.send("Upload block blob successfully");
-    // Send response back to client
-  }
-);
-const randomimage = (alreadyUsed: any, current: any, length: any) => {
-  const filterAlreadyUsed = current.filter((item: any) => {
-    return !alreadyUsed.includes(item);
-  });
-
-  const returndata = filterAlreadyUsed[Math.floor(Math.random() * length)];
-
-  return returndata;
-};
-mainRouter.get("/RandomImage", async (req: Request, res: Response) => {
-  let used: any = [];
-  // const masterdata: any = await masterTableFinal.myGetData();
-  // if (!masterdata) {
-  //   res.status(404).send("Error fetching data from Storage");
-  // }
-  // const firstfive = masterdata.slice(0, 5);
-  // // just need the image name
-  // const current = firstfive.map((item: any) => item.imageName);
-  res.send([
-    "Mexico_City_Cathedral",
-    "Mexican_Street_vendor",
-    "La_roma",
-    "Chapultepec_Castle_Garden_Tower",
-    "Chap_Castle_Mural",
-  ]);
-});
-
+// -> POST: change data in the table
 mainRouter.post("/changeDataNew/:tableName", async (req, res) => {
   const { data } = req.body;
 
@@ -417,40 +289,7 @@ mainRouter.post("/changeDataNew/:tableName", async (req, res) => {
   res.send("Data updated");
 });
 
-mainRouter.post("/rename/:oldName/:newName", async (req, res) => {
-  const { oldName, newName } = req.params;
-  const data = req.body;
-  console.log(` Old Name is ${oldName} and New Name is ${newName}`);
-  try {
-    await masterTableFinal.renameImage(oldName, newName);
-  } catch (error) {
-    res.status(400).send("Error renaming the data");
-  }
-  res.send("Data updated");
-});
-
-mainRouter.delete("/delete/:imageName", async (req, res) => {
-  const { imageName } = req.params;
-  const data = req.body;
-  if (!data || !imageName) {
-    return res.status(400).send("No data recieved in the request");
-  }
-  try {
-    const data2 = await masterTableFinal.fullDeleteProcess(data);
-  } catch (error) {
-    res.status(400).send("Error deleting the data");
-  }
-
-  try {
-    const outcome = await auditsTable.auditHandler("Delete", data);
-    console.log(` Data for Audit is ${JSON.stringify(data)}`);
-  } catch (error) {
-    res.status(400).send("Error making changes to the data");
-  }
-
-  res.send("Data deleted");
-});
-
+// -> POST: change multiple data in the table
 mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
   const { tableName } = req.params;
   const { field } = req.params;
@@ -460,7 +299,7 @@ mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
     return res.status(400).send("No data recieved in the request");
   }
 
-  if (tableName === "Yodahea") {
+  if (tableName === "YodaheaTable") {
     console.log(
       ` Data for Yodahea Change is ${JSON.stringify(data)} with field ${field}`
     );
@@ -556,28 +395,8 @@ mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
   }
   res.send("Data updated");
 });
-// ********** Admin functions ( work in prog ) **********
 
-mainRouter.get("/unapproved", async (req: Request, res: Response) => {
-  const data = await masterTableFinal.getUnapprovedImages();
-  res.send(data);
-});
-mainRouter.post("/admin/approve", async (req: Request, res: Response) => {
-  const { user, imagename } = req.body;
-  Logger.http(`User ${user} requesting to approve images`);
-  let authorizedUsers: any = process.env.AUTHORIZED_USERS;
-  authorizedUsers = JSON.parse(authorizedUsers);
-  if (authorizedUsers[0].email !== user) {
-    Logger.error(`User ${user} not authorized to view unapproved images`);
-    res
-      .status(401)
-      .send(`User ${user} not authorized to view unapproved images`);
-    return;
-  }
-  const data = await masterTableFinal.approveImages(imagename, user);
-  res.send(data);
-});
-
+// --> POST: get filters for the table
 mainRouter.get(
   "/getFilters/:tableName",
   async (req: Request, res: Response) => {
@@ -593,5 +412,39 @@ mainRouter.get(
         res.send(filters);
         break;
     }
+  }
+);
+
+// --> Delete: delete list of entries using fullDeleteProcess
+mainRouter.post(
+  "/deleteEntries/:tableName",
+  async (req: Request, res: Response) => {
+    const { tableName } = req.params;
+    const { imageNames } = req.body;
+    if (!imageNames) {
+      return res.status(400).send("No image names provided");
+    }
+    if (tableName === "YodaheaTable") {
+      logger.info(`Deleting entries for ${imageNames}`);
+      for (let imageName of imageNames) {
+        const outcome = await YodaheaTable.fullDeleteProcess(imageName);
+        if (!outcome) {
+          return res.status(400).send("Error deleting entries");
+        }
+        try {
+          await auditsTable.auditHandler("Delete", imageName, []);
+        } catch (err) {
+          logger.error(`Error in audit for ${imageName}`);
+        }
+      }
+    } else {
+      for (let imageName of imageNames) {
+        const outcome = await masterTableFinal.fullDeleteProcess(imageName);
+        if (!outcome) {
+          return res.status(400).send("Error deleting entries");
+        }
+      }
+    }
+    res.send("Entries deleted");
   }
 );

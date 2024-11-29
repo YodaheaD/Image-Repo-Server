@@ -175,7 +175,7 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
     return res.status(400).send("No data recieved in the request");
   }
 
-  if (tableName === "Yodahea") {
+  if (tableName === "Yodahea" || tableName === "YodaheaTable") {
     console.log(
       ` Data for Yodahea Change is ${JSON.stringify(data)} with field ${field}`
     );

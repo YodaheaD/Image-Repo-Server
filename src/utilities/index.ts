@@ -2,8 +2,8 @@ import express, { Express, Request, Response, Router } from "express";
 
 import Logger from "../utils/logger";
 
-import { newimages } from "../db/blobs";
-import { masterTableFinal } from "../db/masterdata";
+import { newimages, yodaheaBucket } from "../db/blobs";
+import { masterTableFinal, YodaheaTable } from "../db/masterdata";
 
 export const utilsRouter: Router = Router();
 
@@ -31,25 +31,9 @@ utilsRouter.get(
   }
 );
 
-// -> '/viewmissing' - get list of images without metadata assigned
-utilsRouter.get("/viewmissing", async (req: Request, res: Response) => {
-  // const data = await newimages.getImagesMissingMeta();
-  // res.send(data);
-}); //
-
-utilsRouter.post("/update/:tablename", async (req: Request, res: Response) => {
-  // // ge ttbalename form req.params
-  // const { tablename } = req.params;
-  // const { data } = req.body;
-  // switch (tablename) {
-  //   case "masterData": {
-  //     const d = await imageMapTable.myUpdateData(data);
-  //     res.send(d);
-  //     break;
-  //   }
-  //   default:
-  //     Logger.error(` Cannout update table ${tablename}`);
-  //     res.send(` Cannout update table ${tablename}`);
-  //     break;
-  // }
+// return number of images in the storage
+utilsRouter.get("/imagecount", async (req: Request, res: Response) => {
+  const count = await yodaheaBucket.listImages();
+  const umatchedtotal = await YodaheaTable.totalNumnberUnmatched();
+  res.send([count.length, umatchedtotal]);
 });

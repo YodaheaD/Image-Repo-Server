@@ -20,10 +20,10 @@ export async function checkCompression() {
   );
 
   // If there are no images to compress, exit
-    if (imagesToCompress.length === 0) {
-        console.log("No images to compress");
-        return;
-    }
+  if (imagesToCompress.length === 0) {
+    console.log("No images to compress");
+    return;
+  }
   // take first ten for testing
   console.log(
     ` Total Images/Files to Compress: ${listofImages.length} / ${imagesToCompress.length}`
@@ -33,7 +33,7 @@ export async function checkCompression() {
   progBar.start(imagesToCompress.length, 0);
   for (const image of imagesToCompress) {
     progBar.increment();
-    const buffer = await yodaheaBucket.downloadBuffer(image);
+    const buffer = await yodaheaBucket.downloadBuffer(image.split(".")[0]);
     if (!buffer) {
       console.log("Error downloading image");
       continue;
@@ -46,8 +46,9 @@ export async function checkCompression() {
         withoutEnlargement: true,
         background: { r: 255, g: 255, b: 255 },
       })
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .toFormat("webp", { quality: 100 })
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+
+      .toFormat("webp", { quality: 100 }) 
       .toBuffer()
       .catch((e) => {
         console.log("Error compressing image");
@@ -58,7 +59,7 @@ export async function checkCompression() {
       continue;
     }
     try {
-      await compressionBucket.uploadBuffer(image, compressedBuffer);
+      await compressionBucket.uploadBuffer(image.split(".")[0], compressedBuffer);
     } catch (e) {
       console.log("Error uploading compressed image");
     }
@@ -80,6 +81,5 @@ export async function checkCompression() {
 
   console.log("\n ------- Compression Complete \n ");
 }
-
 
 checkCompression();

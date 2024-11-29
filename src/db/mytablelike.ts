@@ -12,6 +12,7 @@ import {
 } from "./blobs";
 import { masterMap2Props } from "./masterdata";
 import { auditsTypes } from "./audits";
+import logger from "../utils/logger";
 
 const connectionString = "UseDevelopmentStorage=true";
 
@@ -149,7 +150,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
   }
   private async searchData(search: string) {
-    Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
+    //Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     // make all images lowercase
 
@@ -161,6 +162,10 @@ export default class TableLike<Type extends TableEntity<object>> {
       Logger.error(`No results found for ${search}`);
       return "No results found";
     }
+    // sort based on image name
+    searchResult.sort((a: any, b: any) => {
+      return a.imageName.localeCompare(b.imageName);
+    });
     return searchResult;
   }
 
@@ -244,7 +249,12 @@ export default class TableLike<Type extends TableEntity<object>> {
       // return "Error getting data";
     }
   }
-  public async myGetDataLimit(start: number, limit: number) {
+  public async myGetDataLimit(
+    start: number,
+    limit: number,
+    useUnmatched?: boolean,
+    tags?: string[]
+  ) {
     // if no search is provided, return all data
 
     switch (this.tableName) {
@@ -255,7 +265,11 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         const intialData: any = await this.initializeMaster();
         let noDates = intialData.filter(
-          (item: any) => item.dateTaken === "No Date"
+          (item: any) =>
+            item.dateTaken === "No Date" ||
+            item.dateTaken === "" ||
+            item.dateTaken === undefined ||
+            !item.dateTaken
         );
 
         let masterData = intialData.filter(
@@ -281,10 +295,32 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
       case "YodaheaTable": {
         Logger.warn(
-          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit} ....`
+          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit}  with tags ....`
         );
 
-        const intialData: any = await this.initializeMaster();
+        //const intialData: any = await this.initializeMaster();
+
+        //
+        let intialData: any = myCache.get(`dataCache${this.tableName}`);
+
+        // if tags are passed, we only want data where there tag entry contains any of the tags
+        // Begin of tag code
+
+        if (tags && tags.length > 0) {
+          console.log(` Using Tags: ${tags}`);
+          const tagData = intialData.filter((item: any) => {
+            const tagArray = item.tags.split(",");
+            const match = tags.some((tag) => tagArray.includes(tag));
+            return match;
+          });
+          intialData = tagData;
+        }
+
+        // ENd of tag code
+        if (!intialData) {
+          Logger.error(`No Cache Found for ${this.tableName} table`);
+          return "Error: No Cache Found";
+        }
         let noDates = intialData.filter(
           (item: any) => item.dateTaken === "No Date"
         );
@@ -297,11 +333,19 @@ export default class TableLike<Type extends TableEntity<object>> {
           (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
         );
 
-        masterData = masterData.concat(noDates);
+        // masterData = masterData.concat(noDates);
+        // Do not concat noDates for now
 
         masterData.forEach((item: any) => {
           item.dateTaken = String(item.dateTaken);
         });
+
+        if (useUnmatched === true) {
+          console.log(` Using Unmatched Data`);
+          const totalNOdates = noDates.length;
+          const finalData = noDates.slice(start, start + limit);
+          return finalData;
+        }
 
         const finalData = masterData.slice(start, start + limit);
 
@@ -340,9 +384,24 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
     return searchResult;
   }
-  public async numberOfImages() {
+  public async numberOfImages(type: string = "all") {
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
-    return currentCache.length;
+
+    if (type === "unmatched") {
+      const noDates = currentCache.filter(
+        (item: any) =>
+          item.dateTaken === "No Date" ||
+          item.dateTaken === "" ||
+          item.dateTaken === undefined ||
+          !item.dateTaken
+      );
+      return noDates.length;
+    }
+    // Only values with filled in dates are considered in the length
+    const filledDates = currentCache.filter(
+      (element: any) => element.dateTaken !== "No Date"
+    );
+    return filledDates.length;
   }
 
   // -> 'basicDeleteProcess()'
@@ -361,7 +420,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     // archive the image by uploading its data into the deletedImages bucket
 
     try {
-      await newimages.deleteBlob(entity.imageName);
+      await yodaheaBucket.deleteBlob(entity.imageName);
     } catch (error) {
       Logger.error(` Error deleting entity: ${error}`);
       return "Error deleting entity";
@@ -385,7 +444,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     Logger.info(` Done deleting entity: ${entity.imageName}`);
 
     return "Success Deleting";
-  }
+  } 
   // Get column names from table, current only works for items table
   public async getColumns() {
     if (myCache.has(`dataNameCache${this.tableName}`)) {
@@ -436,8 +495,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     //
 
     if (type === "Update") {
-      if (this.tableName === "audits") {
-        const rowKey = `RKey-${newdata.imagePath}-${unixTime}-Update-${newdata.auditor}`;
+      if (this.tableName === "audits") {     const rowKey = `RKey-${newdata.imagePath}-${unixTime}-Update-${newdata.auditor}`;
         const entity: auditsTypes = {
           partitionKey: `audits`,
           rowKey: rowKey,
@@ -472,6 +530,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     } else if (type === "Delete") {
       console.log(` Creating Audit for Delete: ${newdata.imageName}`);
       if (this.tableName === "audits") {
+        logger.warn(` Creating Audit for Delete: ${newdata.imageName}`);
         const rowKey = `RKey-${newdata.imageName}-${unixTime}-Delete-${newdata.auditor}`;
         const entity: auditsTypes = {
           partitionKey: `Audits`,
@@ -716,16 +775,24 @@ export default class TableLike<Type extends TableEntity<object>> {
     return "Success";
   }
 
-  public async serveImage(imageName: string, tableName: string) {
+  public async serveImage(imageName: string, version: string) {
     // the imageName will not have the extension so we need to find it in the masterFinal table first
     // assume the cache is already set
-    if (tableName === "Yodahea") {
+    if (version === "Yodahea") {
       const currentCache: any = myCache.get(`dataCacheYodaheaTable`);
-
+      if (!currentCache || currentCache.length === 0) {
+        return "Error: No Cache Found";
+      }
       const materialMatch = currentCache.find(
         (element: any) => element.imageName === imageName
       );
-      const constructSearch = materialMatch.imagePath;
+      if (!materialMatch) {
+        logger.error(
+          ` Error: No Match Found in table: ${version} for ${imageName}`
+        );
+        return "Error: No Match Found";
+      }
+      const constructSearch = materialMatch.imagePath.split(".")[0];
       const searchBlob = await yodaheaBucket.downloadBuffer(constructSearch);
       if (!searchBlob) {
         return "Error: Image not found";
@@ -733,28 +800,32 @@ export default class TableLike<Type extends TableEntity<object>> {
       return searchBlob;
     } else {
       const currentCache: any = myCache.get(`dataCachemasterFinal`);
-
       const materialMatch = currentCache.find(
         (element: any) => element.imageName === imageName
       );
       const constructSearch = materialMatch.imagePath;
       const searchBlob = await newimages.downloadBuffer(constructSearch);
       if (!searchBlob) {
+        Logger.warn(` In Function: serveImage, Error: Image not found`);
         return "Error: Image not found";
       }
       return searchBlob;
     }
   }
   public async serveCompressedImage(imageName: string) {
-   // Logger.warn(` Serving Compressed Image: ${imageName}`);
-    const currentCache: any = await myCache.get(`dataCache`+this.tableName);
+    // Logger.warn(` Serving Compressed Image: ${imageName}`);
+    const currentCache: any = await myCache.get(`dataCache` + this.tableName);
     if (!currentCache) {
       Logger.error(` Error: No Cache Found`);
       return "Error: No Cache Found";
     }
     const materialMatch = currentCache.find(
-      (element: any) => element.imageName === imageName
+      (element: any) => element.imageName === String(imageName)
     );
+    if (!materialMatch) {
+      logger.error(` Error: No Match Found in table: ${this.tableName}`);
+      return "Error: No Match Found";
+    }
     const constructSearch = materialMatch.imagePath.split(".")[0];
     const searchBlob = await compressionBucket.downloadBuffer(constructSearch);
     if (!searchBlob) {
@@ -906,7 +977,7 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
     }
     // if the tableName is Yodahea
-    if (tableName === "Yodahea") {
+    if (tableName === "YodaheaTable") {
       await yodaheaBucket.uploadMulter(ReqFiles);
     } else {
       await newimages.uploadMulter(ReqFiles);
@@ -1059,5 +1130,20 @@ export default class TableLike<Type extends TableEntity<object>> {
   // -> Function to create the table
   public async createTable() {
     await this.client?.createTable().catch(this.catcher);
+  }
+
+  public async totalNumnberUnmatched() {
+    const checkCache: any = myCache.get(`dataCache${this.tableName}`);
+    if (!checkCache) {
+      return "Error: No Cache Found";
+    }
+    const noDates = checkCache.filter(
+      (item: any) =>
+        item.dateTaken === "No Date" ||
+        item.dateTaken === "" ||
+        item.dateTaken === undefined ||
+        !item.dateTaken
+    );
+    return noDates.length;
   }
 }
