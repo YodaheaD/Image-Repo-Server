@@ -415,36 +415,4 @@ mainRouter.get(
   }
 );
 
-// --> Delete: delete list of entries using fullDeleteProcess
-mainRouter.post(
-  "/deleteEntries/:tableName",
-  async (req: Request, res: Response) => {
-    const { tableName } = req.params;
-    const { imageNames } = req.body;
-    if (!imageNames) {
-      return res.status(400).send("No image names provided");
-    }
-    if (tableName === "YodaheaTable") {
-      logger.info(`Deleting entries for ${imageNames}`);
-      for (let imageName of imageNames) {
-        const outcome = await YodaheaTable.fullDeleteProcess(imageName);
-        if (!outcome) {
-          return res.status(400).send("Error deleting entries");
-        }
-        try {
-          await auditsTable.auditHandler("Delete", imageName, []);
-        } catch (err) {
-          logger.error(`Error in audit for ${imageName}`);
-        }
-      }
-    } else {
-      for (let imageName of imageNames) {
-        const outcome = await masterTableFinal.fullDeleteProcess(imageName);
-        if (!outcome) {
-          return res.status(400).send("Error deleting entries");
-        }
-      }
-    }
-    res.send("Entries deleted");
-  }
-);
+

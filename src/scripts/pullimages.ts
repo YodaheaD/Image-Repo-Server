@@ -1,7 +1,7 @@
 import { YodaheaTable } from "../db/masterdata";
 
 async function pullImages() {
-  const listFromMasterFinalTotal = await YodaheaTable.myGetData();
+  const listFromMasterFinalTotal = ["yurr"]//await YodaheaTable.myGetData();
 
   const imageList = listFromMasterFinalTotal.map((item: any) => {
     return item.imagePath;

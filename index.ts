@@ -5,8 +5,8 @@ import { utilsRouter } from "./src/utilities";
 import cors from "cors";
 import { auditRouter } from "./src/audits";
 import { mainRouter } from "./src/main";
-import { checkCompression } from "./src/scripts/compression";
 import { imagesRouter } from "./src/images";
+import { journalRouter } from "./src/journal";
 //import { initilizeMapTable } from "./src/utils/helpers";
 
 /**
@@ -32,6 +32,7 @@ app.use("/main", mainRouter);
 app.use("/utilities", utilsRouter);
 app.use("/audits", auditRouter);
 app.use("/images", imagesRouter);
+app.use("/journal", journalRouter);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello From Yodas Express + TypeScript Server");
@@ -39,5 +40,5 @@ app.get("/", (req: Request, res: Response) => {
 
 app.listen(3030, async () => {
   Logger.http(`⚡️ Server is running at http://localhost:3030`); //
- // await checkCompression();
+  // await checkCompression();
 });

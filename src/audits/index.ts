@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 
 import { auditsTable, auditsTypes } from "../db/audits";
 import { masterTableFinal, YodaheaTable } from "../db/masterdata";
@@ -7,6 +7,8 @@ export const auditRouter = express.Router();
 
 import multer from "multer";
 import Logger from "../utils/logger";
+import { compressionBucket, yodaheaBucket } from "../db/blobs";
+import sharp from "sharp";
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -22,7 +24,6 @@ auditRouter.use(express.urlencoded({ extended: true }));
 // for parsing multipart/form-data
 auditRouter.use(upload.single("data"));
 auditRouter.use(express.static("public"));
-
 
 auditRouter.post("/changeData/:tableName", async (req, res) => {
   const inputdata = JSON.parse(req.body.data);
@@ -200,7 +201,7 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
         try {
           const outcome = await YodaheaTable.updateEntity(newEntity);
           Logger.info(
-            `Data Updated in Master for image ${entry} with field ${field}: ${data.newValue}`
+            `Data Updated in Yodahea for image ${entry} with field ${field}: ${data.newValue}`
           );
         } catch (error) {
           res.status(400).send("Error making changes to the data");
@@ -212,98 +213,129 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
           [field]: String(newValue),
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
-        try { 
+        try {
           const outcome = await YodaheaTable.updateEntity(newEntity);
           Logger.info(
-            `Data Updated in Master for image ${entry} with field ${field}: ${newValue}`
+            `Data Updated in Yodahea for image ${entry} with field ${field}: ${newValue}`
           );
         } catch (error) {
           res.status(400).send("Error making changes to the data");
         }
-      }
-    }
-    ///////////////////////////////////////////////
-  } else {
-    const etnries = data.imageNames;
-    for (let entry of etnries) {
-      const imageP = await masterTableFinal.mySearchData(entry);
-      const image = imageP[0];
-      if (!image) {
-        return res.status(404).send("Data not found");
-      }
-      // get current tags and  add new tags
-      if (field === "tags") {
-        const newTagsInitial = image.tags;
-        const newTags = newTagsInitial
-          ? newTagsInitial + "," + data.newValue
-          : data.newValue;
-
-        const newEntity = {
-          ...image,
-          [field]: newTags,
-        };
-        Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
-        try {
-          const outcome = await masterTableFinal.updateEntity(newEntity);
-          Logger.info(
-            `Data Updated in Master for image ${entry} with field ${field}: ${data.newValue}`
-          );
-        } catch (error) {
-          res.status(400).send("Error making changes to the data");
-        }
-      } else if (field === "dateTaken") {
+      } else if (
+        field === "description" ||
+        field === "notes" ||
+        field === "imageName"
+      ) {
         const newValue = data.newValue;
         const newEntity = {
           ...image,
-          [field]: String(newValue),
+          [field]: newValue,
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
         try {
-          const outcome = await masterTableFinal.updateEntity(newEntity);
+          const outcome = await YodaheaTable.updateEntity(newEntity);
           Logger.info(
-            `Data Updated in Master for image ${entry} with field ${field}: ${newValue}`
+            `Data Updated in Yodahea for image ${entry} with field ${field}: ${newValue}`
           );
+          res.send("Data updated");
         } catch (error) {
           res.status(400).send("Error making changes to the data");
         }
+      } else {
+        console.log(` Cannot operate on field ${field}`);
+        res.status(400).send("Error making changes to the data");
       }
     }
-  }
-  res.send("Data updated");
-});
 
-
-
-auditRouter.post("/rename/:oldName/:newName", async (req, res) => {
-  const { oldName, newName } = req.params;
-  const data = req.body;
-  console.log(` Old Name is ${oldName} and New Name is ${newName}`);
-  try {
-    await masterTableFinal.renameImage(oldName, newName);
-  } catch (error) {
-    res.status(400).send("Error renaming the data");
-  }
-  res.send("Data updated");
-});
-
-auditRouter.delete("/delete/:imageName", async (req, res) => {
-  const { imageName } = req.params;
-  const data = req.body;
-  if (!data || !imageName) {
-    return res.status(400).send("No data recieved in the request");
-  }
-  try {
-    const data2 = await masterTableFinal.fullDeleteProcess(data);
-  } catch (error) {
-    res.status(400).send("Error deleting the data");
-  }
-
-  try {
-    const outcome = await auditsTable.auditHandler("Delete", data);
-    console.log(` Data for Audit is ${JSON.stringify(data)}`);
-  } catch (error) {
+    ///////////////////////////////////////////////
+  } else {
+    console.log(` ERROR, Cannot operate on table ${tableName}`);
     res.status(400).send("Error making changes to the data");
   }
+});
 
-  res.send("Data deleted");
+// --> Delete: delete list of entries using fullDeleteProcess
+auditRouter.post(
+  "/deleteEntries/:tableName",
+  async (req: Request, res: Response) => {
+    const { tableName } = req.params;
+    const { imageNames } = req.body;
+    if (!imageNames) {
+      return res.status(400).send("No image names provided");
+    }
+    if (tableName === "YodaheaTable") {
+      for (let imageName of imageNames) {
+        const outcome = await YodaheaTable.fullDeleteProcess(imageName);
+        if (!outcome) {
+          return res.status(400).send("Error deleting entries");
+        }
+        try {
+          await auditsTable.auditHandler("Delete", imageName, []);
+        } catch (err) {
+          console.log(`Error in audit for ${imageName}`);
+        }
+      }
+    } else {
+      for (let imageName of imageNames) {
+        const outcome = await masterTableFinal.fullDeleteProcess(imageName);
+        if (!outcome) {
+          return res.status(400).send("Error deleting entries");
+        }
+      }
+    }
+    res.send("Entries deleted");
+  }
+);
+
+// -. APi to refresh comp table
+auditRouter.get("/refreshComp", async (req, res) => {
+  const listOfYodaBucketIages = await yodaheaBucket.listContBlobs();
+  const listOfCompresImages = await compressionBucket.listContBlobs();
+
+  console.log(
+    ` FOund: ${listOfYodaBucketIages.length} images in Yodahea and ${listOfCompresImages.length} in compression`
+  );
+
+  const needsCompressing = listOfYodaBucketIages.filter((image) => {
+    return !listOfCompresImages.includes(image);
+  });
+
+  console.log(` Found ${needsCompressing.length} images to compress`);
+
+  for (let image of needsCompressing) {
+    const buffer = await yodaheaBucket.downloadBuffer(image.split(".")[0]);
+    if (!buffer) {
+      console.log("Error downloading image");
+      continue;
+    }
+    const compressed = await sharp(buffer)
+      .rotate() // Corrects the orientation based on EXIF data
+      .resize(375, 375, {
+        fit: "contain",
+        withoutEnlargement: true,
+        background: { r: 255, g: 255, b: 255 },
+      })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+
+      .toFormat("webp", { quality: 100 })
+      .toBuffer()
+      .catch((e) => {
+        console.log("Error compressing image");
+      });
+
+    if (!compressed) {
+      console.log("Error compressing image");
+      continue;
+    }
+    try {
+      await compressionBucket.uploadBuffer(image.split(".")[0], compressed);
+    } catch (e) {
+      console.log("Error uploading compressed image");
+      continue;
+    }
+    console.log(` Compressed ${image}`);
+  }
+
+  console.log("Images refreshed");
+  res.send("Images refreshed");
 });

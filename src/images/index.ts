@@ -28,7 +28,7 @@ import Logger from "../utils/logger";
 import { masterTableFinal, YodaheaTable } from "../db/masterdata";
 import { auditsTable } from "../db/audits";
 import stream from "stream";
-import { deletedBucket } from "../db/blobs";
+import { deletedBucket, yodaheaBucket } from "../db/blobs";
 
 export const imagesRouter: Router = Router();
 
@@ -55,21 +55,21 @@ imagesRouter.get(
     if (!imagename || !tablename) {
       Logger.error("No image name or table name provided");
       pipeDeafultImage(res);
-    }
+    } 
     if (tablename === "YodaheaTable") {
-      //console.info(` Searching for image ${imagename} in Yodahea Table`);
+     // console.info(` Searching for image ${imagename} in Yodahea Table`);
       try {
-        const image = await YodaheaTable.serveImage(imagename, "Yodahea");
-        if (!image) {
+        //    const image = await YodaheaTable.serveImage(imagename, "Yodahea");
+        const imagedata = await YodaheaTable.returnImage(imagename);
+
+        if (!imagedata) {
           Logger.error(`No image found for ${imagename}`);
           pipeDeafultImage(res);
         }
-
-        // Convert the image buffer to a ReadableStream
-        const convert2 = stream.Readable.from(image);
-
+        // serve the image
+        const convert = stream.Readable.from(imagedata);
         res.setHeader("Content-Type", "image/jpeg");
-        convert2.pipe(res);
+        convert.pipe(res);
       } catch (err) {
         // display the image from the url dont send it or else it just shows the url as text
         Logger.error(
@@ -78,21 +78,8 @@ imagesRouter.get(
         pipeDeafultImage(res);
       }
     } else {
-      try {
-        const image = await masterTableFinal.serveImage(imagename, "Total");
-
-        // Convert the image buffer to a ReadableStream
-        const convert2 = stream.Readable.from(image);
-
-        res.setHeader("Content-Type", "image/jpeg");
-        convert2.pipe(res);
-      } catch (err) {
-        // display the image from the url dont send it or else it just shows the url as text
-        Logger.error(
-          `Error fetching image Named " ${imagename} " from storage`
-        );
-        pipeDeafultImage(res);
-      }
+      console.log(` ERROR: error in retrieving image from ${tablename}`);
+      pipeDeafultImage(res);
     }
   }
 );
@@ -154,7 +141,7 @@ imagesRouter.post("/rename/:oldName/:newName", async (req, res) => {
   const data = req.body;
   console.log(` Old Name is ${oldName} and New Name is ${newName}`);
   try {
-    await masterTableFinal.renameImage(oldName, newName);
+    // await masterTableFinal.renameImage(oldName, newName);
   } catch (error) {
     res.status(400).send("Error renaming the data");
   }

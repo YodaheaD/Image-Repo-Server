@@ -13,6 +13,7 @@ import {
 import { masterMap2Props } from "./masterdata";
 import { auditsTypes } from "./audits";
 import logger from "../utils/logger";
+import sharp from "sharp";
 
 const connectionString = "UseDevelopmentStorage=true";
 
@@ -31,7 +32,7 @@ export default class TableLike<Type extends TableEntity<object>> {
   ) {
     this.client = TableClient.fromConnectionString(connectionString, tableName);
     this.createTable();
-    this.myGetData();
+    this.getDataOrCache();
   }
 
   /**
@@ -66,52 +67,9 @@ export default class TableLike<Type extends TableEntity<object>> {
   public listEntities() {
     return this.client?.listEntities<Type>();
   }
-  private async initializeMaster() {
-    Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
 
-    const checkCache = myCache.get(`dataCache${this.tableName}`);
-    if (checkCache) {
-      Logger.info(`${this.tableName} - Cache Found, returning Cache!`);
-
-      return checkCache;
-    } else {
-      Logger.warn(
-        `${this.tableName} - No Cache Found for table, pulling data and building cache ....`
-      );
-      const client = TableClient.fromConnectionString(
-        connectionString,
-        this.tableName
-      );
-      const entities = await client.listEntities();
-      let holder: any[] = [];
-
-      for await (const entity of entities) {
-        // remove etag
-        delete entity.date_Taken;
-
-        const { etag, ...filteredData } = entity;
-        holder.push(filteredData);
-      }
-
-      // Sort holder by dateTaken
-      holder = holder.sort((a, b) => {
-        return Number(a.dateTaken) - Number(b.dateTaken);
-      });
-
-      Logger.info(
-        `${this.tableName} -  Done pulling data, sorting..... found ${holder.length} entries, Building the  Cache ....  `
-      );
-
-      // Save the latest data into cache
-      myCache.set(`dataCache${this.tableName}`, holder, 10000);
-
-      Logger.info(
-        `${this.tableName} - Done setting cache, Returning data from table \n`
-      );
-      return holder;
-    }
-  }
-  private async initialize() {
+  // -> 'getDataOrCahce()' -- serves either the cache or the data from the table
+  private async getDataOrCache() {
     Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
 
     const checkCache = myCache.get(`dataCache${this.tableName}`);
@@ -143,6 +101,10 @@ export default class TableLike<Type extends TableEntity<object>> {
       // Save the latest data into cache
       myCache.set(`dataCache${this.tableName}`, holder, 10000);
 
+      // Set the map if the table is YodaheaTable
+      if (this.tableName === "YodaheaTable") {
+        this.buildMap(holder);
+      }
       Logger.info(
         `${this.tableName} - Done setting cache, Returning data from table \n`
       );
@@ -169,86 +131,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     return searchResult;
   }
 
-  // -> 'myGetData()'
-  // * Function for getting all data entries from Azure Table.
-
-  public async myGetData() {
-    // if no search is provided, return all data
-
-    switch (this.tableName) {
-      case "masterFinal": {
-        Logger.warn(`Getting data for ${this.tableName} table ....`);
-
-        const intialData: any = await this.initializeMaster();
-        let noDates = intialData.filter(
-          (item: any) => item.dateTaken === "No Date"
-        );
-
-        let masterData = intialData.filter(
-          (item: any) => item.dateTaken !== "No Date"
-        );
-
-        masterData = masterData.sort(
-          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
-        );
-
-        masterData = masterData.concat(noDates);
-
-        masterData.forEach((item: any) => {
-          item.dateTaken = String(item.dateTaken);
-        });
-
-        return masterData;
-
-        //return this.initializeMaster();
-        break;
-      }
-      case "YodaheaTable": {
-        Logger.warn(`Getting data for ${this.tableName} table ....`);
-
-        const intialData: any = await this.initializeMaster();
-        let noDates = intialData.filter(
-          (item: any) => item.dateTaken === "No Date"
-        );
-
-        let masterData = intialData.filter(
-          (item: any) => item.dateTaken !== "No Date"
-        );
-
-        masterData = masterData.sort(
-          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
-        );
-
-        masterData = masterData.concat(noDates);
-
-        masterData.forEach((item: any) => {
-          item.dateTaken = String(item.dateTaken);
-        });
-
-        return masterData;
-
-        //return this.initializeMaster();
-        break;
-      }
-      case "compressiontable": {
-        return this.initialize();
-        break;
-      }
-
-      case "tagsdata": {
-        return this.initialize();
-        break;
-      }
-      case "audits": {
-        return this.initialize();
-        break;
-      }
-      default:
-        Logger.error("Invalid tablename: " + this.tableName);
-        return "Error: Invalid tablename";
-      // return "Error getting data";
-    }
-  }
+  // -> 'myGetDataLimit()' -- similar to myGetData() but with a limit
   public async myGetDataLimit(
     start: number,
     limit: number,
@@ -259,11 +142,11 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     switch (this.tableName) {
       case "masterFinal": {
+        const intialData: any = await this.getDataOrCache();
         Logger.warn(
-          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit} ....`
+          `Getting data from ${this.tableName} table with ${intialData.length} enetries and with Start limit ${start} - ${limit} ....`
         );
 
-        const intialData: any = await this.initializeMaster();
         let noDates = intialData.filter(
           (item: any) =>
             item.dateTaken === "No Date" ||
@@ -290,19 +173,17 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         return finalData;
 
-        //return this.initializeMaster();
+        //return this.getDataOrCache();
         break;
       }
       case "YodaheaTable": {
-        Logger.warn(
-          `Getting data for ${this.tableName} table with Start limit ${start} - ${limit}  with tags ....`
-        );
-
-        //const intialData: any = await this.initializeMaster();
+        //const intialData: any = await this.getDataOrCache();
 
         //
-        let intialData: any = myCache.get(`dataCache${this.tableName}`);
-
+        let intialData: any = await this.getDataOrCache();
+        Logger.warn(
+          `Getting data from ${this.tableName} table with ${intialData.length} enetries and with Start limit ${start} - ${limit} ....`
+        );
         // if tags are passed, we only want data where there tag entry contains any of the tags
         // Begin of tag code
 
@@ -348,19 +229,29 @@ export default class TableLike<Type extends TableEntity<object>> {
         }
 
         const finalData = masterData.slice(start, start + limit);
-
+        const allrowkeys = finalData.map((item: any) => item.rowKey);
+        //  console.log(` All Rowkeys: ${allrowkeys}`);
         return finalData;
 
-        //return this.initializeMaster();
+        //return this.getDataOrCache();
         break;
       }
 
       case "tagsdata": {
-        return this.initialize();
+        return this.getDataOrCache();
         break;
       }
       case "audits": {
-        return this.initialize();
+        return this.getDataOrCache();
+        break;
+      }
+      case "compressiontable": {
+        // return all data
+        return this.getDataOrCache();
+        break;
+      }
+      case "journal": {
+        return this.getDataOrCache();
         break;
       }
       default:
@@ -415,12 +306,17 @@ export default class TableLike<Type extends TableEntity<object>> {
   // Function for deleting entries at specific id in Azure Table.
   public async fullDeleteProcess(entity: any) {
     const deleteid = entity.imageName;
-    Logger.warn(`Deleting data  ${entity.imageName}`);
+    const pathInStorage = entity.imagePath.includes(".")
+      ? entity.imagePath.split(".")[0]
+      : entity.imagePath;
+    Logger.warn(
+      `Deleting data  ${entity.imageName} with path ${pathInStorage} ....`
+    );
 
     // archive the image by uploading its data into the deletedImages bucket
 
     try {
-      await yodaheaBucket.deleteBlob(entity.imageName);
+      await yodaheaBucket.deleteBlob(pathInStorage);
     } catch (error) {
       Logger.error(` Error deleting entity: ${error}`);
       return "Error deleting entity";
@@ -428,7 +324,7 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     // now dlete entry from table
     try {
-      await this.client?.deleteEntity("masterFinal", "RKey-" + deleteid);
+      await this.client?.deleteEntity("masterFinal", "RKey-" + pathInStorage);
       Logger.info(` Deleted entity: ${entity.imageName}`);
     } catch (error) {
       Logger.error(` Error deleting entity: ${error}`);
@@ -438,13 +334,15 @@ export default class TableLike<Type extends TableEntity<object>> {
     // update cache
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     const deleteOld = currentCache.filter(
-      (element: any) => element.rowKey !== entity.rowKey
+      (element: any) => element.rowKey !== "RKey-" + pathInStorage
     );
     myCache.set(`dataCache${this.tableName}`, deleteOld, 10000);
-    Logger.info(` Done deleting entity: ${entity.imageName}`);
+    Logger.info(
+      ` Done deleting entity: ${entity.imageName} with path ${entity.imagePath}, original cache size: ${currentCache.length} new cache size: ${deleteOld.length}`
+    );
 
     return "Success Deleting";
-  } 
+  }
   // Get column names from table, current only works for items table
   public async getColumns() {
     if (myCache.has(`dataNameCache${this.tableName}`)) {
@@ -495,7 +393,8 @@ export default class TableLike<Type extends TableEntity<object>> {
     //
 
     if (type === "Update") {
-      if (this.tableName === "audits") {     const rowKey = `RKey-${newdata.imagePath}-${unixTime}-Update-${newdata.auditor}`;
+      if (this.tableName === "audits") {
+        const rowKey = `RKey-${newdata.imagePath}-${unixTime}-Update-${newdata.auditor}`;
         const entity: auditsTypes = {
           partitionKey: `audits`,
           rowKey: rowKey,
@@ -611,80 +510,116 @@ export default class TableLike<Type extends TableEntity<object>> {
   }
 
   async updateEntity(entity: any) {
-    console.log(` Recived Entity for updating: ` + entity.imageName);
-    try {
-      // Valid fields , remove the blacklisted fields
-      const blacklistedFields = [
-        "etag",
-        "partitionKey",
-        "rowKey",
-        "timestamp",
-        "auditor",
-        // "dateTaken",
-        "approvedBy",
-        "folder",
-        "filetype",
-        "uploader",
-        "imagePath",
-      ];
-      const entityKeys = Object.keys(entity);
-      const filteredKeys = entityKeys.filter(
-        (item) => !blacklistedFields.includes(item)
-      );
-      const filteredData: any = {};
-      filteredKeys.forEach((key) => {
-        filteredData[key] = entity[key];
-      });
-      const buildRowKey = entity.rowKey;
-      console.log(` Using Rowkye ${buildRowKey}`);
-      // Now also update the Cache so we keep it up to date
-      const current: any = myCache.get(`dataCache${this.tableName}`);
-      const findOldEntry = current.find(
-        (element: any) => element.rowKey === buildRowKey
-      );
+    // if the tablename is journal just do a striaght update with azure
+    if (this.tableName === "journal") {
+      await this.client?.updateEntity(entity);
+      return "Success";
+    } else {
+      console.log(` Recived Entity for updating: ` + entity.imageName);
+      try {
+        // Valid fields , remove the blacklisted fields
+        const blacklistedFields = [
+          "etag",
+          "partitionKey",
+          "rowKey",
+          "timestamp",
+          "auditor",
+          // "dateTaken",
+          "approvedBy",
+          "folder",
+          "filetype",
+          "uploader",
+          "imagePath",
+        ];
+        const entityKeys = Object.keys(entity);
+        const filteredKeys = entityKeys.filter(
+          (item) => !blacklistedFields.includes(item)
+        );
+        const filteredData: any = {};
+        filteredKeys.forEach((key) => {
+          filteredData[key] = entity[key];
+        });
+        const buildRowKey = entity.rowKey;
+        console.log(` Using Rowkye ${buildRowKey}`);
+        // Now also update the Cache so we keep it up to date
+        const current: any = myCache.get(`dataCache${this.tableName}`);
+        const findOldEntry = current.find(
+          (element: any) => element.rowKey === buildRowKey
+        );
 
-      if (!findOldEntry) {
+        if (!findOldEntry) {
+          return "Error";
+        }
+        const newEntity = {
+          partitionKey: "masterFinal",
+          rowKey: buildRowKey,
+          ...filteredData,
+          // dateTaken: findOldEntry.dateTaken,
+          imagePath: findOldEntry.imagePath,
+          folder: findOldEntry.folder,
+          approvedBy: findOldEntry.approvedBy,
+          uploader: findOldEntry.uploader,
+          filetype: findOldEntry.filetype,
+        };
+
+        // console.log(
+        //   ` Ising New Entity: ${JSON.stringify(
+        //     newEntity
+        //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
+        // );
+        // move the folder, dateTaken and timestamp to new entity
+        // const newEntity = {
+        //   ...entity,
+        //   folder: findOldEntry.folder,
+        //   dateTaken: findOldEntry.dateTaken,
+        //   auditor: findOldEntry.auditor,
+        // };
+        await this.client?.updateEntity(newEntity);
+
+        const updatedCache = current.map((element: any) =>
+          element.rowKey === buildRowKey ? newEntity : element
+        );
+
+        myCache.set(`dataCache${this.tableName}`, updatedCache, 10000);
+        console.log(`Updated entry in cache:`);
+        console.log(` New value:`);
+        console.log(newEntity);
+
+        // also rebuild map incase something changed
+        await this.buildMap(updatedCache);
+        Logger.info(` Done updating entity: ${entity.imageName}`);
+        return "Success";
+      } catch (error) {
+        console.log(` ERROR in Table, updating entity: ${error}`);
         return "Error";
       }
-      const newEntity = {
-        partitionKey: "masterFinal",
-        rowKey: buildRowKey,
-        ...filteredData,
-        // dateTaken: findOldEntry.dateTaken,
-        imagePath: findOldEntry.imagePath,
-        folder: findOldEntry.folder,
-        approvedBy: findOldEntry.approvedBy,
-        uploader: findOldEntry.uploader,
-        filetype: findOldEntry.filetype,
-      };
-
-      // console.log(
-      //   ` Ising New Entity: ${JSON.stringify(
-      //     newEntity
-      //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
-      // );
-      // move the folder, dateTaken and timestamp to new entity
-      // const newEntity = {
-      //   ...entity,
-      //   folder: findOldEntry.folder,
-      //   dateTaken: findOldEntry.dateTaken,
-      //   auditor: findOldEntry.auditor,
-      // };
-      await this.client?.updateEntity(newEntity);
-
-      const deleteOld = current.filter(
-        (element: any) => element.rowKey !== buildRowKey
-      ); //
-      const newCache = [...deleteOld, newEntity];
-      myCache.set(`dataCache${this.tableName}`, newCache, 10000);
-      Logger.info(` Done updating entity: ${entity.imageName}`);
-      return "Success";
-    } catch (error) {
-      console.log(` ERROR in Table, updating entity: ${error}`);
-      return "Error";
     }
   }
-  //// Azure Functions ////
+
+  //-> 'buildMap()' - Function to build a map of the data in the table
+  // -- Only applys to YodaheaTable
+  private async buildMap(currentCache: any) {
+    // build the mpa then save it in its own cache called dataMapCache
+    if (this.tableName === "YodaheaTable") {
+      if (!currentCache) {
+        Logger.error(` No Cache Found for ${this.tableName}`);
+        return "Error: No Cache Found";
+      }
+      const mapData = currentCache.map((item: any) => {
+        return {
+          imageName: item.imageName,
+          imagePath: item.imagePath,
+          dateTaken: item.dateTaken,
+        };
+      });
+      myCache.set(`dataMapCache`, mapData, 10000);
+      Logger.info(`***  Done Building Map for ${this.tableName} ....`);
+      return "Success";
+    } else {
+      //  Logger.error(` Error: Invalid Table Name`);
+      return null;
+    }
+  }
 
   // -> updateCacheData() - Function to update the cache when a change in data occurs.
   async updateCacheData(type: string, entity: any) {
@@ -744,92 +679,94 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
   }
 
-  public async renameImage(oldName: string, newName: string) {
-    let checkCache: any = myCache.get(`dataCachemasterFinal`);
-    if (!checkCache) {
-      checkCache = this.myGetData();
+  // --> 'returnImage()' - Function to return an image from the table
+  public async returnImage(imageName: string) {
+    const mapCache: any = myCache.get(`dataMapCache`);
+    if (!mapCache) {
+      //Logger.error(` Error: No Cache Found`);
+      return "Error: No Cache Found";
     }
-
-    let getMatch = checkCache.find(
-      (element: any) => element.imageName === oldName
+    const findImagepath = mapCache.find(
+      (element: any) => element.imageName === imageName
     );
-    if (!getMatch) {
-      return "Error: No Match Found";
+    if (!findImagepath) {
+      //Logger.error(` Error: No Image Found`);
+      return "Error: No Image Found";
     }
+    //logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
 
-    getMatch.imageName = newName;
-
-    try {
-      await this.client?.updateEntity(getMatch);
-    } catch (error) {
-      Logger.error(` Error updating entity: ${error}`);
-      return "Error updating entity";
+    // create search for, if . in then split if not keep normal
+    const searchfor = findImagepath.imagePath.includes(".")
+      ? findImagepath.imagePath.split(".")[0]
+      : findImagepath.imagePath;
+    const searchBlob = await yodaheaBucket.downloadBuffer(searchfor);
+    if (!searchBlob) {
+      return "Error: Image not found";
     }
-    // update cache
-    const currentCache: any = myCache.get(`dataCachemasterFinal`);
-    const deleteOld = currentCache.filter(
-      (element: any) => element.rowKey !== getMatch.rowKey
-    );
-    const newCache = [...deleteOld, getMatch];
-    myCache.set(`dataCachemasterFinal`, newCache, 10000);
-    return "Success";
+    return searchBlob;
   }
 
-  public async serveImage(imageName: string, version: string) {
-    // the imageName will not have the extension so we need to find it in the masterFinal table first
-    // assume the cache is already set
-    if (version === "Yodahea") {
-      const currentCache: any = myCache.get(`dataCacheYodaheaTable`);
-      if (!currentCache || currentCache.length === 0) {
-        return "Error: No Cache Found";
-      }
-      const materialMatch = currentCache.find(
-        (element: any) => element.imageName === imageName
-      );
-      if (!materialMatch) {
-        logger.error(
-          ` Error: No Match Found in table: ${version} for ${imageName}`
-        );
-        return "Error: No Match Found";
-      }
-      const constructSearch = materialMatch.imagePath.split(".")[0];
-      const searchBlob = await yodaheaBucket.downloadBuffer(constructSearch);
-      if (!searchBlob) {
-        return "Error: Image not found";
-      }
-      return searchBlob;
-    } else {
-      const currentCache: any = myCache.get(`dataCachemasterFinal`);
-      const materialMatch = currentCache.find(
-        (element: any) => element.imageName === imageName
-      );
-      const constructSearch = materialMatch.imagePath;
-      const searchBlob = await newimages.downloadBuffer(constructSearch);
-      if (!searchBlob) {
-        Logger.warn(` In Function: serveImage, Error: Image not found`);
-        return "Error: Image not found";
-      }
-      return searchBlob;
-    }
-  }
   public async serveCompressedImage(imageName: string) {
     // Logger.warn(` Serving Compressed Image: ${imageName}`);
-    const currentCache: any = await myCache.get(`dataCache` + this.tableName);
+    const currentCache: any = await myCache.get(`dataMapCache`);
     if (!currentCache) {
       Logger.error(` Error: No Cache Found`);
       return "Error: No Cache Found";
     }
+    //logger.warn( ` Searching Compressed for Image: ${imageName}`);
     const materialMatch = currentCache.find(
       (element: any) => element.imageName === String(imageName)
     );
+    //logger.warn(` Found Image: ${imageName}: ${materialMatch.imagePath}`);
     if (!materialMatch) {
-      logger.error(` Error: No Match Found in table: ${this.tableName}`);
+      logger.error(
+        ` Error: No Match Found in table: ${this.tableName} for image: ${imageName}`
+      );
       return "Error: No Match Found";
     }
-    const constructSearch = materialMatch.imagePath.split(".")[0];
+    const constructSearch = materialMatch.imagePath.includes(".")
+      ? materialMatch.imagePath.split(".")[0]
+      : materialMatch.imagePath;
+    //logger.warn(` Searching Compressed for Image: ${imageName} with path: ${constructSearch}`);
     const searchBlob = await compressionBucket.downloadBuffer(constructSearch);
+    //logger.warn(` Done Searching Compressed for Image: ${imageName}, size is ${searchBlob.length}`);
     if (!searchBlob) {
-      return "Error: Image not found";
+      logger.error(
+        ` Error Image: ${imageName} not found to Compress , attempting to compress`
+      );
+      const downloadImage = await yodaheaBucket.downloadBuffer(constructSearch);
+      if (!downloadImage) {
+        logger.error(` Error Image: ${imageName} not found to Compress `);
+        return ` Error Image: ${imageName} not found`;
+      }
+      // make a compressed and upload it
+      const compressedBuffer: any = await sharp(downloadImage)
+        .rotate() // Corrects the orientation based on EXIF data
+
+        .resize(375, 375, {
+          fit: "contain",
+          withoutEnlargement: true,
+          background: { r: 255, g: 255, b: 255 },
+        })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+
+        .toFormat("webp", { quality: 100 })
+        .toBuffer()
+        .catch((e) => {
+          console.log("Error compressing image");
+        });
+      //logger.warn(` Compressing Image: ${imageName}`);
+      if (!compressedBuffer) {
+        console.log("Error compressing image");
+        return "Error compressing image";
+      }
+      try {
+        await compressionBucket.uploadBuffer(constructSearch, compressedBuffer);
+      } catch (e) {
+        console.log("Error uploading compressed image");
+      }
+      //logger.warn(` Done Compressing Image: ${imageName}`);
+      return compressedBuffer;
     }
     return searchBlob;
   }
@@ -946,7 +883,8 @@ export default class TableLike<Type extends TableEntity<object>> {
         // Check if the entity already exists
         let checkCache: any = myCache.get(`dataCache${this.tableName}`); //
         if (!checkCache) {
-          checkCache = this.myGetData();
+          logger.error(` No Cache Found for ${this.tableName}`);
+          return "Error: No Cache Found";
         }
         const checkEntity = checkCache.find(
           (element: any) => element.rowKey === entity.rowKey
@@ -977,7 +915,7 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
     }
     // if the tableName is Yodahea
-    if (tableName === "YodaheaTable") {
+    if (tableName === "YodaheaTable" || tableName === "Yodahea") {
       await yodaheaBucket.uploadMulter(ReqFiles);
     } else {
       await newimages.uploadMulter(ReqFiles);
@@ -1048,24 +986,6 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         return setted;
       }
-    }
-  }
-
-  // -> 'getUnapprovedImages()' - this method reutnrs the data from table with the  'approvedBy' field as 'Unapproved'
-  public async getUnapprovedImages() {
-    Logger.warn(`Searching for unapproved images ....`);
-    const checkCache: any = myCache.get(`dataCache${this.tableName}`);
-    if (checkCache) {
-      const unapprovedArr = checkCache.filter(
-        (element: any) => element.approvedBy === "Unapproved"
-      );
-      Logger.info(unapprovedArr.length + " Unapproved images found ");
-      return unapprovedArr;
-    } else {
-      Logger.error(
-        `No Cache Found for ${this.tableName}, cache must be set before using`
-      );
-      return [];
     }
   }
 
@@ -1145,5 +1065,35 @@ export default class TableLike<Type extends TableEntity<object>> {
         !item.dateTaken
     );
     return noDates.length;
+  }
+
+  // given the partiton and row key, delete entry from table
+
+  public async straightDelete(partitionKey: string, rowKey: string) {
+    try {
+      await this.client?.deleteEntity(partitionKey, rowKey);
+      return "Success Deleting";
+    } catch (error) {
+      Logger.error(` Error deleting entity: ${error}`);
+      return "Error deleting entity";
+    }
+  }
+
+  public async straightQuery() {
+    // just return all data from table
+    const entities = await this.client?.listEntities();
+    if (!entities) {
+      Logger.error(`No entities found`);
+      return []
+    }else{
+      const holder = [];
+      // dont pass the etag
+      for await (const entity of entities) {
+        holder.push(entity);
+      }
+      return holder;
+    }
+    // pushing all data into array 'holder' which is then filtered
+ 
   }
 }

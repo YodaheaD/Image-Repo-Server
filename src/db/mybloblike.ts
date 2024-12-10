@@ -2,6 +2,9 @@ import { BlobServiceClient, BlockBlobClient } from "@azure/storage-blob";
 import Logger from "../utils/logger";
 import { decode } from "base64-arraybuffer";
 import NodeCache from "node-cache";
+import { compressionTable } from "./compression";
+import { YodaheaTable } from "./masterdata";
+import sharp from "sharp";
 
 const connectionString = "UseDevelopmentStorage=true";
 const client = BlobServiceClient.fromConnectionString(connectionString);
@@ -47,8 +50,7 @@ export class BlobLike {
     }
     return blobArray;
   }
- 
- 
+
   public async listImages() {
     const containerClient = client.getContainerClient(this.containerName);
     let blobArray: string[] = [];
@@ -76,8 +78,12 @@ export class BlobLike {
     const containerClient = client.getContainerClient(this.containerName);
 
     for (const file of files) {
-      console.log(` -- Uploading to Blob:  ${file.originalname}`);
-      const blobClient = containerClient.getBlockBlobClient(file.originalname);
+      // if it includes a . split it else keep name
+      const uploadName = file.originalname.includes(".")
+        ? file.originalname.split(".")[0]
+        : file.originalname;
+      console.log(` -- Uploading to Blob:  ${uploadName}`);
+      const blobClient = containerClient.getBlockBlobClient(uploadName);
       await blobClient.uploadData(file.buffer);
     }
   }
@@ -93,6 +99,15 @@ export class BlobLike {
         },
       });
     }
+    // else if its the journal, its a txt file so add that text/plain
+    else if (this.containerName === "journal") {
+      const blobClient = await this.getClient(name);
+      await blobClient.uploadData(buffer, {
+        blobHTTPHeaders: {
+          blobContentType: "text/plain",
+        },
+      });
+    }
 
     const blobClient = await this.getClient(name);
     await blobClient.uploadData(buffer);
@@ -104,6 +119,18 @@ export class BlobLike {
       await blobClient.delete();
     } catch (err) {
       Logger.error(`Error deleting filename: ${name} + ${err}`);
+    }
+  }
+
+  public async renameBlob(oldname: string, newname: string) {
+    try {
+      const buffer = await this.downloadBuffer(oldname);
+      await this.uploadBuffer(newname, buffer);
+      await this.deleteBlob(oldname);
+    } catch (err) {
+      Logger.error(
+        `Error renaming filename: ${oldname} to ${newname} + ${err}`
+      );
     }
   }
 }

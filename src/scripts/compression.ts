@@ -2,7 +2,8 @@ import sharp from "sharp";
 import { compressionBucket, yodaheaBucket } from "../db/blobs";
 import { Compression, compressionTable } from "../db/compression";
 import cliProgress from "cli-progress";
-export async function checkCompression() {
+import fs from "fs";
+export async function runCompression() {
   const compTable: Compression[] = [];
   for await (const entity of compressionTable.listEntities() || []) {
     compTable.push(entity as Compression);
@@ -41,14 +42,15 @@ export async function checkCompression() {
     // Use sharp to compress the image
     //Requirements: webp, compression 100
     const compressedBuffer = await sharp(buffer)
+      .rotate() // Corrects the orientation based on EXIF data
       .resize(375, 375, {
         fit: "contain",
         withoutEnlargement: true,
         background: { r: 255, g: 255, b: 255 },
       })
-            .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
 
-      .toFormat("webp", { quality: 100 }) 
+      .toFormat("webp", { quality: 100 })
       .toBuffer()
       .catch((e) => {
         console.log("Error compressing image");
@@ -59,7 +61,10 @@ export async function checkCompression() {
       continue;
     }
     try {
-      await compressionBucket.uploadBuffer(image.split(".")[0], compressedBuffer);
+      await compressionBucket.uploadBuffer(
+        image.split(".")[0],
+        compressedBuffer
+      );
     } catch (e) {
       console.log("Error uploading compressed image");
     }
@@ -82,4 +87,35 @@ export async function checkCompression() {
   console.log("\n ------- Compression Complete \n ");
 }
 
-checkCompression();
+//checkCompression();
+
+async function testCompression() {
+  const imagename = "1BD64B77-26DD-44AD-95FE-12D929E6BDF4";
+
+  const downloadImage = await yodaheaBucket.downloadBuffer(imagename);
+  if (!downloadImage) {
+    console.log("Error downloading image");
+    return;
+  }
+
+  const compressedBuffer: any = await sharp(downloadImage)
+    .rotate() // Corrects the orientation based on EXIF data
+
+    .resize(375, 375, {
+      fit: "contain",
+      withoutEnlargement: true,
+      background: { r: 255, g: 255, b: 255 },
+    })
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+
+    .toFormat("webp", { quality: 100 })
+    .toBuffer()
+    .catch((e) => {
+      console.log("Error compressing image");
+    });
+
+  // using fs, write the compressed image to disk
+  fs.writeFileSync("./compressed.webp", compressedBuffer);
+}
+
+ 
