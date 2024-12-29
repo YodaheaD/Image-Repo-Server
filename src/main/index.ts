@@ -403,7 +403,7 @@ mainRouter.get(
     const { tableName } = req.params;
 
     switch (tableName) {
-      case "Yodahea":
+      case "YodaheaTable":
         const filtersYodahea = await YodaheaTable.getFilters();
         res.send(filtersYodahea);
         break;

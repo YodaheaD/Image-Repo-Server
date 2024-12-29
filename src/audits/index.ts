@@ -221,6 +221,8 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
         } catch (error) {
           res.status(400).send("Error making changes to the data");
         }
+
+        res.send("Data updated");
       } else if (
         field === "description" ||
         field === "notes" ||
@@ -237,10 +239,10 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
           Logger.info(
             `Data Updated in Yodahea for image ${entry} with field ${field}: ${newValue}`
           );
-          res.send("Data updated");
         } catch (error) {
           res.status(400).send("Error making changes to the data");
         }
+        res.send("Data updated");
       } else {
         console.log(` Cannot operate on field ${field}`);
         res.status(400).send("Error making changes to the data");

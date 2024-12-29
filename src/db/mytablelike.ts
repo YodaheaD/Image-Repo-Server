@@ -211,7 +211,8 @@ export default class TableLike<Type extends TableEntity<object>> {
         );
 
         masterData = masterData.sort(
-          (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+          //  (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
+          (a: any, b: any) => Number(b.dateTaken) - Number(a.dateTaken)
         );
 
         // masterData = masterData.concat(noDates);
@@ -548,6 +549,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         );
 
         if (!findOldEntry) {
+          console.log(` Error: No Entry Found for ${buildRowKey}`);
           return "Error";
         }
         const newEntity = {
@@ -561,12 +563,21 @@ export default class TableLike<Type extends TableEntity<object>> {
           uploader: findOldEntry.uploader,
           filetype: findOldEntry.filetype,
         };
+        // check if the newEntity tags are a string or an array, if array convert to string
+        if (Array.isArray(newEntity.tags)) {
+          newEntity.tags = newEntity.tags.join(",");
+        }
 
         // console.log(
-        //   ` Ising New Entity: ${JSON.stringify(
+        //   ` Using New Entity: ${JSON.stringify(
         //     newEntity
         //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
         // );
+        console.log(` Using new entity:`)
+        console.log(newEntity);
+
+        console.log(`\n\n  Found Old Entry:`)
+        console.log(findOldEntry);
         // move the folder, dateTaken and timestamp to new entity
         // const newEntity = {
         //   ...entity,
@@ -574,7 +585,12 @@ export default class TableLike<Type extends TableEntity<object>> {
         //   dateTaken: findOldEntry.dateTaken,
         //   auditor: findOldEntry.auditor,
         // };
-        await this.client?.updateEntity(newEntity);
+        try {
+          await this.client?.updateEntity(newEntity);
+        } catch (error) {
+          console.log(` Error updating entity: ${error}`);
+          return "Error";
+        }
 
         const updatedCache = current.map((element: any) =>
           element.rowKey === buildRowKey ? newEntity : element
@@ -728,8 +744,14 @@ export default class TableLike<Type extends TableEntity<object>> {
       ? materialMatch.imagePath.split(".")[0]
       : materialMatch.imagePath;
     //logger.warn(` Searching Compressed for Image: ${imageName} with path: ${constructSearch}`);
-    const searchBlob = await compressionBucket.downloadBuffer(constructSearch);
-    //logger.warn(` Done Searching Compressed for Image: ${imageName}, size is ${searchBlob.length}`);
+    let searchBlob;
+    try {
+      searchBlob = await compressionBucket.downloadBuffer(constructSearch);
+    } catch (error) {
+      logger.error(`Error downloading compressed image: ${error}`);
+      searchBlob = null;
+    }
+    // logger.warn(` Done Searching Compressed for Image: ${imageName}, size is ${searchBlob.length}`);
     if (!searchBlob) {
       logger.error(
         ` Error Image: ${imageName} not found to Compress , attempting to compress`
@@ -755,7 +777,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         .catch((e) => {
           console.log("Error compressing image");
         });
-      //logger.warn(` Compressing Image: ${imageName}`);
+      logger.warn(` Compressing Image: ${imageName}`);
       if (!compressedBuffer) {
         console.log("Error compressing image");
         return "Error compressing image";
@@ -1084,8 +1106,8 @@ export default class TableLike<Type extends TableEntity<object>> {
     const entities = await this.client?.listEntities();
     if (!entities) {
       Logger.error(`No entities found`);
-      return []
-    }else{
+      return [];
+    } else {
       const holder = [];
       // dont pass the etag
       for await (const entity of entities) {
@@ -1094,6 +1116,5 @@ export default class TableLike<Type extends TableEntity<object>> {
       return holder;
     }
     // pushing all data into array 'holder' which is then filtered
- 
   }
 }
