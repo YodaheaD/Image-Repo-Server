@@ -35,9 +35,9 @@ import multer from "multer";
 import Logger from "../utils/logger";
 import { newimages } from "../db/blobs";
 import { masterTableFinal, YodaheaTable } from "../db/masterdata";
-import { logger } from "@azure/storage-blob";
 import dotenv from "dotenv";
 import { auditsTable } from "../db/audits";
+import logger from "../utils/logger";
 dotenv.config();
 export const mainRouter: Router = Router();
 
@@ -74,13 +74,24 @@ mainRouter.get(
   "/getAllData",
 
   async (req: Request, res: Response) => {
-    const { start, limit, showUnmatched, tags, search, tablename } = req.query;
+    const {
+      start,
+      limit,
+      showUnmatched,
+      tags,
+      search,
+      tablename,
+      startdate,
+      enddate,
+    } = req.query;
     const startPoint = start || process.env.STARTPOINT;
     const limitPoint = limit || process.env.MAXLIMIT;
     const unmatchedChoice = showUnmatched === "true" ? true : false;
     const tagsInput = tags ? String(tags).split(",") : [];
     const searchInput = search ? String(search) : "";
-    logger.info(` Table is ${tablename} earch is ${searchInput}`);
+    // look for start and end dates, if none make 0
+    const startingDate = startdate ? Number(startdate) : 0;
+    const endingDate = enddate ? Number(enddate) : 0;
     try {
       // Get table name from req and return data from there
       switch (tablename) {
@@ -99,29 +110,42 @@ mainRouter.get(
           res.send([masterData, yodaimages, totalEntries]);
           break;
         case "YodaheaTable":
-          logger.info(`Searching for ${searchInput}`);
           let yodaData = [];
           if (searchInput !== "") {
+            logger.info(`Searching for ${searchInput}`);
             yodaData = await YodaheaTable.mySearchData(searchInput);
           } else {
+            logger.warn(` Querying with options:
+              start: ${startPoint},
+              limit: ${limitPoint},
+              showUnmatched: ${unmatchedChoice},
+              tags: ${tagsInput},
+              search: ${searchInput},
+              startdate: ${new Date(startingDate)},
+              enddate:  ${new Date(endingDate)}`);
+
             yodaData = await YodaheaTable.myGetDataLimit(
               Number(startPoint),
               Number(limitPoint),
-              unmatchedChoice
+              unmatchedChoice,
+              tagsInput,
+              startingDate,
+              endingDate
             );
           }
-          let totalEntriesTotal = await YodaheaTable.numberOfImages();
-          // Sort by dateTaken
+         // Sort by dateTaken
           // Remove the any No Date values from masterData and append to the end
 
           //
           const yodaimagesTotal = await newimages.listImages();
           if (unmatchedChoice === false) {
-            res.send([yodaData, yodaimagesTotal, totalEntriesTotal]);
+            console.log(` For matched data size is ${yodaData[1]}`);
+            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
           } else {
-            const unmatchedNUm = await YodaheaTable.totalNumnberUnmatched();
 
-            res.send([yodaData, yodaimagesTotal, unmatchedNUm]);
+            console.log(` For unmatched data size is ${yodaData[1]}`);
+ 
+            res.send([yodaData[0], yodaimagesTotal,  yodaData[1]]);
           }
 
           break;
@@ -414,5 +438,3 @@ mainRouter.get(
     }
   }
 );
-
-

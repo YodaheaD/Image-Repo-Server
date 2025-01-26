@@ -31,8 +31,8 @@ auditRouter.post("/changeData/:tableName", async (req, res) => {
   const { tableName } = req.params;
 
   if (!inputdata || !olddata) {
-    // return a res wiht message
-    return res.status(400).send("No data recieved in the request");
+    // return a response with message
+    return res.status(400).send("No data received in the request");
   }
   if (tableName && tableName === "Yodahea") {
     const getData = await YodaheaTable.mySearchData(inputdata.imageName);
@@ -180,8 +180,8 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
     console.log(
       ` Data for Yodahea Change is ${JSON.stringify(data)} with field ${field}`
     );
-    const etnries = data.imageNames;
-    for (let entry of etnries) {
+    const entries = data.imageNames;
+    for (let entry of entries) {
       const imageP = await YodaheaTable.mySearchData(entry);
       const image = imageP[0];
       if (!image) {
@@ -199,12 +199,13 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
         try {
-          const outcome = await YodaheaTable.updateEntity(newEntity);
+          await YodaheaTable.updateEntity(newEntity);
           Logger.info(
             `Data Updated in Yodahea for image ${entry} with field ${field}: ${data.newValue}`
           );
+          await YodaheaTable.refreshFilters();
         } catch (error) {
-          res.status(400).send("Error making changes to the data");
+          return res.status(400).send("Error making changes to the data");
         }
       } else if (field === "dateTaken") {
         const newValue = data.newValue;
@@ -214,15 +215,13 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
         try {
-          const outcome = await YodaheaTable.updateEntity(newEntity);
+          await YodaheaTable.updateEntity(newEntity);
           Logger.info(
             `Data Updated in Yodahea for image ${entry} with field ${field}: ${newValue}`
           );
         } catch (error) {
-          res.status(400).send("Error making changes to the data");
+          return res.status(400).send("Error making changes to the data");
         }
-
-        res.send("Data updated");
       } else if (
         field === "description" ||
         field === "notes" ||
@@ -235,21 +234,20 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
         };
         Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
         try {
-          const outcome = await YodaheaTable.updateEntity(newEntity);
+          await YodaheaTable.updateEntity(newEntity);
           Logger.info(
             `Data Updated in Yodahea for image ${entry} with field ${field}: ${newValue}`
           );
+          await YodaheaTable.refreshFilters();
         } catch (error) {
-          res.status(400).send("Error making changes to the data");
+          return res.status(400).send("Error making changes to the data");
         }
-        res.send("Data updated");
       } else {
         console.log(` Cannot operate on field ${field}`);
-        res.status(400).send("Error making changes to the data");
+        return res.status(400).send("Error making changes to the data");
       }
     }
-
-    ///////////////////////////////////////////////
+    res.send("Data updated");
   } else {
     console.log(` ERROR, Cannot operate on table ${tableName}`);
     res.status(400).send("Error making changes to the data");

@@ -136,7 +136,9 @@ export default class TableLike<Type extends TableEntity<object>> {
     start: number,
     limit: number,
     useUnmatched?: boolean,
-    tags?: string[]
+    tags?: string[],
+    startdate?: number,
+    enddate?: number,
   ) {
     // if no search is provided, return all data
 
@@ -184,14 +186,26 @@ export default class TableLike<Type extends TableEntity<object>> {
         Logger.warn(
           `Getting data from ${this.tableName} table with ${intialData.length} enetries and with Start limit ${start} - ${limit} ....`
         );
+        // if a startdate and end date is provided, return data within that range
+        if (startdate && enddate && startdate !== 0 && enddate !== 0) {
+          console.log(` Using date range: ${startdate} - ${enddate}`);
+          intialData = intialData.filter(
+            (item: any) =>
+              Number(item.dateTaken) >= startdate &&
+              Number(item.dateTaken) <= enddate
+          );
+        }
+
+
         // if tags are passed, we only want data where there tag entry contains any of the tags
         // Begin of tag code
 
         if (tags && tags.length > 0) {
           console.log(` Using Tags: ${tags}`);
           const tagData = intialData.filter((item: any) => {
-            const tagArray = item.tags.split(",");
-            const match = tags.some((tag) => tagArray.includes(tag));
+            const intialtags = item.tags.replaceAll(" ,",",")
+            const tagArray = intialtags.split(",");
+            const match = tags.some((tag) => tagArray.includes(tag) || tagArray.includes(" "+tag));
             return match;
           });
           intialData = tagData;
@@ -226,13 +240,12 @@ export default class TableLike<Type extends TableEntity<object>> {
           console.log(` Using Unmatched Data`);
           const totalNOdates = noDates.length;
           const finalData = noDates.slice(start, start + limit);
-          return finalData;
+          return [finalData, totalNOdates];
         }
 
         const finalData = masterData.slice(start, start + limit);
-        const allrowkeys = finalData.map((item: any) => item.rowKey);
         //  console.log(` All Rowkeys: ${allrowkeys}`);
-        return finalData;
+        return [finalData,intialData.length];
 
         //return this.getDataOrCache();
         break;
@@ -509,7 +522,7 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
     }
   }
-
+ 
   async updateEntity(entity: any) {
     // if the tablename is journal just do a striaght update with azure
     if (this.tableName === "journal") {
@@ -573,11 +586,11 @@ export default class TableLike<Type extends TableEntity<object>> {
         //     newEntity
         //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
         // );
-        console.log(` Using new entity:`)
-        console.log(newEntity);
+        // console.log(` Using new entity:`);
+        // console.log(newEntity);
 
-        console.log(`\n\n  Found Old Entry:`)
-        console.log(findOldEntry);
+        // console.log(`\n\n  Found Old Entry:`);
+        // console.log(findOldEntry);
         // move the folder, dateTaken and timestamp to new entity
         // const newEntity = {
         //   ...entity,
@@ -686,6 +699,13 @@ export default class TableLike<Type extends TableEntity<object>> {
     } //
   }
 
+  private async buildTagsData() {
+// we have our data rowKey and tags
+// the tags are an array of strings that we want to first convert to an array
+// after in the end I nee
+
+  }
+
   //// ********** Helper Functions ********** ////
 
   // -> 'myUpdateData()'
@@ -693,8 +713,8 @@ export default class TableLike<Type extends TableEntity<object>> {
   public async myUpdateData(data: any) {
     switch (this.tableName) {
     }
-  }
-
+  } 
+  
   // --> 'returnImage()' - Function to return an image from the table
   public async returnImage(imageName: string) {
     const mapCache: any = myCache.get(`dataMapCache`);
@@ -739,7 +759,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         ` Error: No Match Found in table: ${this.tableName} for image: ${imageName}`
       );
       return "Error: No Match Found";
-    }
+    } 
     const constructSearch = materialMatch.imagePath.includes(".")
       ? materialMatch.imagePath.split(".")[0]
       : materialMatch.imagePath;
@@ -748,7 +768,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     try {
       searchBlob = await compressionBucket.downloadBuffer(constructSearch);
     } catch (error) {
-      logger.error(`Error downloading compressed image: ${error}`);
+      logger.error(`Error downloading compressed for image ${constructSearch}`)
       searchBlob = null;
     }
     // logger.warn(` Done Searching Compressed for Image: ${imageName}, size is ${searchBlob.length}`);
@@ -907,7 +927,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         if (!checkCache) {
           logger.error(` No Cache Found for ${this.tableName}`);
           return "Error: No Cache Found";
-        }
+        } 
         const checkEntity = checkCache.find(
           (element: any) => element.rowKey === entity.rowKey
         ); //
@@ -939,6 +959,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     // if the tableName is Yodahea
     if (tableName === "YodaheaTable" || tableName === "Yodahea") {
       await yodaheaBucket.uploadMulter(ReqFiles);
+      await compressionBucket.uploadMulterCompress(ReqFiles);
     } else {
       await newimages.uploadMulter(ReqFiles);
     }
@@ -982,33 +1003,61 @@ export default class TableLike<Type extends TableEntity<object>> {
     } else {
       // get the tables cache
       const dataCache: any = myCache.get(`dataCache${this.tableName}`);
-      let tags: any[] = [];
-      // if theres no cache, build it
+      let tags: { tagName: string; tagCount: number }[] = [];
+      // if there's no cache, build it
       if (!dataCache) {
         Logger.error(
           `No Cache Found for ${this.tableName}, cache must be set before using`
         );
-        return [];
+        return []; 
       } else {
-        // make a set of all tags
-        dataCache.map((item: any) => {
+        // make a set of all tags with their counts
+        dataCache.forEach((item: any) => {
           let tagsSplit: any = item.tags
             .split(",")
-            .filter((item: any) => item !== "");
+            .filter((tag: any) => tag !== "");
           // remove blank spaces from items
-          tagsSplit = tagsSplit.map((item: any) => item.trim());
-          // then sort alphabetically using localeCompare
-
-          tags.push(...tagsSplit);
+          tagsSplit = tagsSplit.map((tag: any) => tag.trim());
+          tagsSplit.forEach((tag: string) => {
+            const existingTag = tags.find((t) => t.tagName === tag);
+            if (existingTag) {
+              existingTag.tagCount++;
+            } else {
+              tags.push({ tagName: tag, tagCount: 1 });
+            }
+          });
         });
-        tags = tags.sort((a, b) => a.localeCompare(b));
-        const setted = [...new Set(tags)];
+        // sort tags alphabetically
+        tags = tags.sort((a, b) => a.tagName.localeCompare(b.tagName));
         // set the cache
-        myCache.set(`dataCache${this.tableName}Filters`, setted, 10000);
+        myCache.set(`dataCache${this.tableName}Filters`, tags, 10000);
 
-        return setted;
+        return tags;
       }
     }
+  }
+
+  public async refreshFilters(){
+    logger.warn(`Refreshing Filters for ${this.tableName}`)
+    myCache.del(`dataCache${this.tableName}Filters`)
+     const newFilters = await this.getFilters()
+    // set chach
+    myCache.set(`dataCache${this.tableName}Filters`, newFilters, 10000)
+    logger.warn(`Filters Refreshed for ${this.tableName}`)
+
+
+  }
+
+  //const currentCache: any = await myCache.get(`dataMapCache`);
+
+  public async refreshMapCache() {
+    logger.warn(`Refreshing Map for ${this.tableName}`)
+    myCache.del(`dataMapCache`)
+    const newMap = await this.buildMap(myCache.get(`dataCache${this.tableName}`))
+    // set chach
+    myCache.set(`dataMapCache`, newMap, 10000)
+    logger.warn(`Map Refreshed for ${this.tableName}`)
+
   }
 
   // -. 'approveImages()' - this method updates 'approvedBy' field to user who approved the image

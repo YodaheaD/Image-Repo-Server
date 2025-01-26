@@ -117,7 +117,7 @@ imagesRouter.post(
     if (!req.files || req.files.length === 0) {
       Logger.error("No files received in request. ");
       return res.status(400).send("No files were received.");
-    }
+    } 
     const data: any = JSON.parse(req.body.data);
 
     const { tablename } = req.params;
@@ -129,7 +129,8 @@ imagesRouter.post(
     }
     await auditsTable.auditHandler("Upload", data[0], req.files);
     //
-    Logger.info(" Data added to table, All done!");
+    Logger.info("Refreshing cache now ");
+    await YodaheaTable.refreshMapCache();
     res.send("Upload block blob successfully");
     // Send response back to client
   }
@@ -161,17 +162,17 @@ imagesRouter.get("/RandomImage", async (req: Request, res: Response) => {
   ]);
 });
 
-// --- Helper Functions --- //
+// --- Helper Functions --- // 
 const randomimage = (alreadyUsed: any, current: any, length: any) => {
   const filterAlreadyUsed = current.filter((item: any) => {
     return !alreadyUsed.includes(item);
   });
 
   const returndata = filterAlreadyUsed[Math.floor(Math.random() * length)];
-
+  
   return returndata;
 };
-
+ 
 // --> For pipeing the default image when no image is found
 const pipeDeafultImage = async (res: any) => {
   const deafiltsvg = await deletedBucket.downloadBuffer(

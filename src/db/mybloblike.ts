@@ -88,6 +88,32 @@ export class BlobLike {
     }
   }
 
+  public async uploadMulterCompress(files: any) {
+   
+    const containerClient = client.getContainerClient(this.containerName);
+    for (const file of files) {
+      const uploadName = file.originalname.includes(".")
+        ? file.originalname.split(".")[0]
+        : file.originalname;
+      console.log(` -- Uploading to Blob:  ${uploadName}`);
+      const blobClient = containerClient.getBlockBlobClient(uploadName);
+      const compressedBuffer: any = await sharp(file.buffer)
+        .rotate() // Corrects the orientation based on EXIF data
+        .resize(375, 375, {
+          fit: "contain",
+          withoutEnlargement: true,
+          background: { r: 255, g: 255, b: 255 },
+        })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .toFormat("webp", { quality: 100 })
+        .toBuffer()
+        .catch((e) => {
+          console.log("Error compressing image");
+        });
+      await blobClient.uploadData(compressedBuffer);
+    }
+  }
+
   // Uplaod a single buffer
   public async uploadBuffer(name: string, buffer: Buffer) {
     // if the tablename is compressiontable then upload as we

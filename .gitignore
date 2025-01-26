@@ -16,7 +16,7 @@ package-lock.json
 tsconfig.json
 **/logger.js
 .vscode
-
+export
 todo.txt
 /dist
 /ZignoreFolder
