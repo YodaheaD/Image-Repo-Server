@@ -3,8 +3,6 @@
 ### By: Yodahea Daniel
 
  
-<h3 align="center">A simple UI for uploading images to my personal repository!</h3>
-
 ### Description
 This Image Repository Server is an application that manages all the images and their metadata for my repository.
 
