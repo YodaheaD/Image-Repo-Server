@@ -23,12 +23,7 @@ export interface masterMap2Props {
   imagePath: string;
 }
 
-export interface tagsMapProps {
-  partitionKey: string;
-  rowKey: string;
-  filenames: string;
-  tags: string;
-}
+
 export interface imageMapProps {
   partitionKey: string;
   rowKey: string;
@@ -41,10 +36,9 @@ export interface imageMapProps {
   dateTaken?: string;
   folder?: string;
 } 
-
+ 
 export const masterTableFinal = new TableLike<masterMap2Props>("masterFinal");
 export const YodaheaTable = new TableLike<masterMap2Props>(
   "YodaheaTable"
 ); 
-export const tagsTable = new TableLike<tagsMapProps>("tagsdata");
-//export const imageMapTable = new TableLike<imageMapProps>("imagemap");
+//export const imageM apTable = new TableLike<imageMapProps>("imagemap");

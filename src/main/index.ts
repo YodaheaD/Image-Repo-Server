@@ -39,15 +39,15 @@ import dotenv from "dotenv";
 import { auditsTable } from "../db/audits";
 import logger from "../utils/logger";
 dotenv.config();
-export const mainRouter: Router = Router();
+export const dataRouter: Router = Router();
 
-mainRouter.use(cors());
-mainRouter.use(express.json());
-mainRouter.use(bodyParser.json());
-mainRouter.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+dataRouter.use(cors());
+dataRouter.use(express.json());
+dataRouter.use(bodyParser.json());
+dataRouter.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
 // -> GET: return the column names from the table,
-mainRouter.get(
+dataRouter.get(
   "/getTableColumns/:tablename",
   async (req: Request, res: Response) => {
     const { tablename } = req.params;
@@ -70,7 +70,7 @@ mainRouter.get(
 );
 
 // -> GET: get all data from Azure Table
-mainRouter.get(
+dataRouter.get(
   "/getAllData",
 
   async (req: Request, res: Response) => {
@@ -161,7 +161,7 @@ mainRouter.get(
   }
 );
 // -> GET: get  single data from Azure Table
-mainRouter.get(
+dataRouter.get(
   "/getData/:tableName/:imageName",
 
   async (req: Request, res: Response) => {
@@ -211,7 +211,7 @@ mainRouter.get(
 );
 
 // -> GET: search for data in the table
-mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
+dataRouter.get("/search/:tablename", async (req: Request, res: Response) => {
   const { tablename } = req.params;
   const checkForSearch = req.query.search;
   // get [object Object] so convert to string
@@ -244,7 +244,7 @@ mainRouter.get("/search/:tablename", async (req: Request, res: Response) => {
 });
 
 // -> POST: change data in the table
-mainRouter.post("/changeDataNew/:tableName", async (req, res) => {
+dataRouter.post("/changeDataNew/:tableName", async (req, res) => {
   const { data } = req.body;
 
   const { tableName } = req.params;
@@ -314,7 +314,7 @@ mainRouter.post("/changeDataNew/:tableName", async (req, res) => {
 });
 
 // -> POST: change multiple data in the table
-mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
+dataRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
   const { tableName } = req.params;
   const { field } = req.params;
   const data = req.body;
@@ -421,7 +421,7 @@ mainRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
 });
 
 // --> POST: get filters for the table
-mainRouter.get(
+dataRouter.get(
   "/getFilters/:tableName",
   async (req: Request, res: Response) => {
     const { tableName } = req.params;

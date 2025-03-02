@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import { utilsRouter } from "./src/utilities";
 import cors from "cors";
 import { auditRouter } from "./src/audits";
-import { mainRouter } from "./src/main";
+import { dataRouter } from "./src/main";
 import { imagesRouter } from "./src/images";
 import { journalRouter } from "./src/journal";
 //import { initilizeMapTable } from "./src/utils/helpers";
@@ -13,7 +13,7 @@ import { journalRouter } from "./src/journal";
  * All router imports
  ---------------------------------
   * 
- * -> " Main Router " :  mainRouter
+ * -> " Main Router " :  dataRouter
  * -> " Utilities Router " :  utilsRouter
  * -> " Audit Router " :  auditRouter
  * -> " Images Router " :  imagesRouter
@@ -28,7 +28,7 @@ app.use(cookieParser());
 //app.use(express.static(path.join(__dirname, "public")));
 app.use(cors());
 //
-app.use("/main", mainRouter);
+app.use("/main", dataRouter);
 app.use("/utilities", utilsRouter);
 app.use("/audits", auditRouter);
 app.use("/images", imagesRouter);

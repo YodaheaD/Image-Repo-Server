@@ -5,8 +5,10 @@ import NodeCache from "node-cache";
 import { compressionTable } from "./compression";
 import { YodaheaTable } from "./masterdata";
 import sharp from "sharp";
+import dotenv from "dotenv";
 
-const connectionString = "UseDevelopmentStorage=true";
+dotenv.config();
+const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
 const client = BlobServiceClient.fromConnectionString(connectionString);
 
 const imageCache = new NodeCache();
@@ -89,7 +91,6 @@ export class BlobLike {
   }
 
   public async uploadMulterCompress(files: any) {
-   
     const containerClient = client.getContainerClient(this.containerName);
     for (const file of files) {
       const uploadName = file.originalname.includes(".")
@@ -133,7 +134,7 @@ export class BlobLike {
           blobContentType: "text/plain",
         },
       });
-    }
+    } 
 
     const blobClient = await this.getClient(name);
     await blobClient.uploadData(buffer);

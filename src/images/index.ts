@@ -1,25 +1,3 @@
-/**
- *  Images Router
- * ----------------
- *
- *  -- For handling image uploads, deletions, and retrievals
- *
- * Routes:
- * - GET: /getImage/:imagename/:tablename
- *  ** For serving an image from the storage
- *
- * - GET: /getCompressed/:imagename
- * ** For serving a compressed image from the storage
- *
- * - POST: /uploadImage/:tablename
- * ** For uploading an image to the storage
- *
- * - POST: /rename/:oldName/:newName
- * ** For renaming an image
- *
-
- */
-
 import bodyParser from "body-parser";
 import cors from "cors";
 import express, { Response, Request, Router } from "express";
@@ -44,6 +22,27 @@ const upload = multer({
     fileSize: 20000000,
   },
 });
+/**
+ *  Images Router
+ * ----------------
+ *
+ *  -- For handling image uploads, deletions, and retrievals
+ *
+ * Routes:
+ * - GET: /getImage/:imagename/:tablename
+ *  ** For serving an image from the storage
+ *
+ * - GET: /getCompressed/:imagename
+ * ** For serving a compressed image from the storage
+ *
+ * - POST: /uploadImage/:tablename
+ * ** For uploading an image to the storage
+ *
+ * - POST: /rename/:oldName/:newN ame
+ * ** For renaming an image
+ * 
+
+ */
 
 // --> GET: serve an image from the storage
 imagesRouter.get(
@@ -55,9 +54,9 @@ imagesRouter.get(
     if (!imagename || !tablename) {
       Logger.error("No image name or table name provided");
       pipeDeafultImage(res);
-    } 
+    }
     if (tablename === "YodaheaTable") {
-     // console.info(` Searching for image ${imagename} in Yodahea Table`);
+      // console.info(` Searching for image ${imagename} in Yodahea Table`);
       try {
         //    const image = await YodaheaTable.serveImage(imagename, "Yodahea");
         const imagedata = await YodaheaTable.returnImage(imagename);
@@ -117,7 +116,7 @@ imagesRouter.post(
     if (!req.files || req.files.length === 0) {
       Logger.error("No files received in request. ");
       return res.status(400).send("No files were received.");
-    } 
+    }
     const data: any = JSON.parse(req.body.data);
 
     const { tablename } = req.params;
@@ -130,7 +129,7 @@ imagesRouter.post(
     await auditsTable.auditHandler("Upload", data[0], req.files);
     //
     Logger.info("Refreshing cache now ");
-    await YodaheaTable.refreshMapCache();
+    //await YodaheaTable.refreshMapCache();
     res.send("Upload block blob successfully");
     // Send response back to client
   }
@@ -162,29 +161,29 @@ imagesRouter.get("/RandomImage", async (req: Request, res: Response) => {
   ]);
 });
 
-// --- Helper Functions --- // 
+// --- Helper Functions --- //
 const randomimage = (alreadyUsed: any, current: any, length: any) => {
   const filterAlreadyUsed = current.filter((item: any) => {
     return !alreadyUsed.includes(item);
   });
 
   const returndata = filterAlreadyUsed[Math.floor(Math.random() * length)];
-  
+
   return returndata;
 };
- 
+
 // --> For pipeing the default image when no image is found
 const pipeDeafultImage = async (res: any) => {
-  const deafiltsvg = await deletedBucket.downloadBuffer(
+  const defaultImg = await deletedBucket.downloadBuffer(
     "default/default-image.jpg"
   );
-  if (!deafiltsvg) {
+  if (!defaultImg) {
     Logger.error("No default image found");
     res.send("No default image found");
   } else {
     // change the name of the image to the default image
 
-    const convert = stream.Readable.from(deafiltsvg);
+    const convert = stream.Readable.from(defaultImg);
     res.setHeader("Content-Type", "image/jpeg");
     convert.pipe(res);
   }

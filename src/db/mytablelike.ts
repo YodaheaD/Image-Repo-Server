@@ -14,8 +14,11 @@ import { masterMap2Props } from "./masterdata";
 import { auditsTypes } from "./audits";
 import logger from "../utils/logger";
 import sharp from "sharp";
-
-const connectionString = "UseDevelopmentStorage=true";
+import dotenv from "dotenv";
+dotenv.config();
+// Use emulated storage account for local development
+const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
+//process.env.AZURE_STORAGE_CONNECTION_STRING || "";
 
 // Create a node cache
 const myCache = new NodeCache();
@@ -138,7 +141,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     useUnmatched?: boolean,
     tags?: string[],
     startdate?: number,
-    enddate?: number,
+    enddate?: number
   ) {
     // if no search is provided, return all data
 
@@ -196,16 +199,17 @@ export default class TableLike<Type extends TableEntity<object>> {
           );
         }
 
-
         // if tags are passed, we only want data where there tag entry contains any of the tags
         // Begin of tag code
 
         if (tags && tags.length > 0) {
           console.log(` Using Tags: ${tags}`);
           const tagData = intialData.filter((item: any) => {
-            const intialtags = item.tags.replaceAll(" ,",",")
+            const intialtags = item.tags.replaceAll(" ,", ",");
             const tagArray = intialtags.split(",");
-            const match = tags.some((tag) => tagArray.includes(tag) || tagArray.includes(" "+tag));
+            const match = tags.some(
+              (tag) => tagArray.includes(tag) || tagArray.includes(" " + tag)
+            );
             return match;
           });
           intialData = tagData;
@@ -245,16 +249,12 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         const finalData = masterData.slice(start, start + limit);
         //  console.log(` All Rowkeys: ${allrowkeys}`);
-        return [finalData,intialData.length];
+        return [finalData, intialData.length];
 
         //return this.getDataOrCache();
         break;
       }
 
-      case "tagsdata": {
-        return this.getDataOrCache();
-        break;
-      }
       case "audits": {
         return this.getDataOrCache();
         break;
@@ -699,13 +699,6 @@ export default class TableLike<Type extends TableEntity<object>> {
     } //
   }
 
-  private async buildTagsData() {
-// we have our data rowKey and tags
-// the tags are an array of strings that we want to first convert to an array
-// after in the end I nee
-
-  }
-
   //// ********** Helper Functions ********** ////
 
   // -> 'myUpdateData()'
@@ -713,35 +706,39 @@ export default class TableLike<Type extends TableEntity<object>> {
   public async myUpdateData(data: any) {
     switch (this.tableName) {
     }
-  } 
-  
+  }
+
   // --> 'returnImage()' - Function to return an image from the table
   public async returnImage(imageName: string) {
     const mapCache: any = myCache.get(`dataMapCache`);
-    if (!mapCache) {
-      //Logger.error(` Error: No Cache Found`);
+     if (!mapCache) {
+      Logger.error(` Error: No Cache Found`);
       return "Error: No Cache Found";
     }
+    //console.log(` Searching for Image: ${imageName}`);
     const findImagepath = mapCache.find(
       (element: any) => element.imageName === imageName
     );
     if (!findImagepath) {
-      //Logger.error(` Error: No Image Found`);
+       Logger.error(` Error: No Image Found for ${imageName}`);
       return "Error: No Image Found";
     }
-    //logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
+     logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
 
     // create search for, if . in then split if not keep normal
     const searchfor = findImagepath.imagePath.includes(".")
       ? findImagepath.imagePath.split(".")[0]
       : findImagepath.imagePath;
+      //console.log(`  Downloading Image: ${searchfor}`);
     const searchBlob = await yodaheaBucket.downloadBuffer(searchfor);
     if (!searchBlob) {
+      Logger.error( ` Error downloading image: ${searchfor}`);
       return "Error: Image not found";
     }
+    //console.log(` Done Downloading Image: ${searchfor}`);
     return searchBlob;
   }
-
+ 
   public async serveCompressedImage(imageName: string) {
     // Logger.warn(` Serving Compressed Image: ${imageName}`);
     const currentCache: any = await myCache.get(`dataMapCache`);
@@ -759,7 +756,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         ` Error: No Match Found in table: ${this.tableName} for image: ${imageName}`
       );
       return "Error: No Match Found";
-    } 
+    }
     const constructSearch = materialMatch.imagePath.includes(".")
       ? materialMatch.imagePath.split(".")[0]
       : materialMatch.imagePath;
@@ -768,7 +765,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     try {
       searchBlob = await compressionBucket.downloadBuffer(constructSearch);
     } catch (error) {
-      logger.error(`Error downloading compressed for image ${constructSearch}`)
+      logger.error(`Error downloading compressed for image ${constructSearch}`);
       searchBlob = null;
     }
     // logger.warn(` Done Searching Compressed for Image: ${imageName}, size is ${searchBlob.length}`);
@@ -927,7 +924,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         if (!checkCache) {
           logger.error(` No Cache Found for ${this.tableName}`);
           return "Error: No Cache Found";
-        } 
+        }
         const checkEntity = checkCache.find(
           (element: any) => element.rowKey === entity.rowKey
         ); //
@@ -1009,13 +1006,13 @@ export default class TableLike<Type extends TableEntity<object>> {
         Logger.error(
           `No Cache Found for ${this.tableName}, cache must be set before using`
         );
-        return []; 
+        return [];
       } else {
         // make a set of all tags with their counts
         dataCache.forEach((item: any) => {
           let tagsSplit: any = item.tags
-            .split(",")
-            .filter((tag: any) => tag !== "");
+            ? item.tags.split(",").filter((tag: any) => tag !== "")
+            : [];
           // remove blank spaces from items
           tagsSplit = tagsSplit.map((tag: any) => tag.trim());
           tagsSplit.forEach((tag: string) => {
@@ -1037,27 +1034,26 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
   }
 
-  public async refreshFilters(){
-    logger.warn(`Refreshing Filters for ${this.tableName}`)
-    myCache.del(`dataCache${this.tableName}Filters`)
-     const newFilters = await this.getFilters()
+  public async refreshFilters() {
+    logger.warn(`Refreshing Filters for ${this.tableName}`);
+    myCache.del(`dataCache${this.tableName}Filters`);
+    const newFilters = await this.getFilters();
     // set chach
-    myCache.set(`dataCache${this.tableName}Filters`, newFilters, 10000)
-    logger.warn(`Filters Refreshed for ${this.tableName}`)
-
-
+    myCache.set(`dataCache${this.tableName}Filters`, newFilters, 10000);
+    logger.warn(`Filters Refreshed for ${this.tableName}`);
   }
 
   //const currentCache: any = await myCache.get(`dataMapCache`);
 
   public async refreshMapCache() {
-    logger.warn(`Refreshing Map for ${this.tableName}`)
-    myCache.del(`dataMapCache`)
-    const newMap = await this.buildMap(myCache.get(`dataCache${this.tableName}`))
+    logger.warn(`Refreshing Map for ${this.tableName}`);
+    myCache.del(`dataMapCache`);
+    const newMap = await this.buildMap(
+      myCache.get(`dataCache${this.tableName}`)
+    );
     // set chach
-    myCache.set(`dataMapCache`, newMap, 10000)
-    logger.warn(`Map Refreshed for ${this.tableName}`)
-
+    myCache.set(`dataMapCache`, newMap, 10000);
+    logger.warn(`Map Refreshed for ${this.tableName}`);
   }
 
   // -. 'approveImages()' - this method updates 'approvedBy' field to user who approved the image
