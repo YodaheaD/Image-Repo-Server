@@ -522,7 +522,7 @@ export default class TableLike<Type extends TableEntity<object>> {
       }
     }
   }
- 
+
   async updateEntity(entity: any) {
     // if the tablename is journal just do a striaght update with azure
     if (this.tableName === "journal") {
@@ -581,28 +581,13 @@ export default class TableLike<Type extends TableEntity<object>> {
           newEntity.tags = newEntity.tags.join(",");
         }
 
-        // console.log(
-        //   ` Using New Entity: ${JSON.stringify(
-        //     newEntity
-        //   )} \n Found Old Entry: ${JSON.stringify(findOldEntry)}`
-        // );
-        // console.log(` Using new entity:`);
-        // console.log(newEntity);
-
-        // console.log(`\n\n  Found Old Entry:`);
-        // console.log(findOldEntry);
-        // move the folder, dateTaken and timestamp to new entity
-        // const newEntity = {
-        //   ...entity,
-        //   folder: findOldEntry.folder,
-        //   dateTaken: findOldEntry.dateTaken,
-        //   auditor: findOldEntry.auditor,
-        // };
         try {
           await this.client?.updateEntity(newEntity);
         } catch (error) {
           console.log(` Error updating entity: ${error}`);
           return "Error";
+        } finally {
+          console.log(` Done updating entity: ${entity.imageName}`);
         }
 
         const updatedCache = current.map((element: any) =>
@@ -623,6 +608,40 @@ export default class TableLike<Type extends TableEntity<object>> {
         return "Error";
       }
     }
+  }
+
+  // -> Manual Rebuild the Cache with the data from the table
+  public async rebuildCache() {
+    Logger.warn(
+      `Resettting Cache for ${this.tableName} table, pulling data from Azure Table ....`
+    );
+    const client = TableClient.fromConnectionString(
+      connectionString,
+      this.tableName
+    );
+    const entities = await client.listEntities();
+    let holder: any[] = [];
+
+    for await (const entity of entities) {
+      // remove etag
+
+      const { etag, ...filteredData } = entity;
+      holder.push(filteredData);
+    }
+    Logger.info(
+      `${this.tableName} -  Done pulling data found ${holder.length} entries, Building the  Cache ....  `
+    );
+
+    // Save the latest data into cache
+    myCache.set(`dataCache${this.tableName}`, holder, 10000);
+
+    // Set the map if the table is YodaheaTable
+    if (this.tableName === "YodaheaTable") {
+      this.buildMap(holder);
+    }
+    // Now reset filter by passing manualrefresh as true 
+    this.getFilters(true);
+    Logger.info(`${this.tableName} - Done re-setting cache \n`);
   }
 
   //-> 'buildMap()' - Function to build a map of the data in the table
@@ -711,7 +730,7 @@ export default class TableLike<Type extends TableEntity<object>> {
   // --> 'returnImage()' - Function to return an image from the table
   public async returnImage(imageName: string) {
     const mapCache: any = myCache.get(`dataMapCache`);
-     if (!mapCache) {
+    if (!mapCache) {
       Logger.error(` Error: No Cache Found`);
       return "Error: No Cache Found";
     }
@@ -720,25 +739,25 @@ export default class TableLike<Type extends TableEntity<object>> {
       (element: any) => element.imageName === imageName
     );
     if (!findImagepath) {
-       Logger.error(` Error: No Image Found for ${imageName}`);
+      Logger.error(` Error: No Image Found for ${imageName}`);
       return "Error: No Image Found";
     }
-     logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
+    //logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
 
     // create search for, if . in then split if not keep normal
     const searchfor = findImagepath.imagePath.includes(".")
       ? findImagepath.imagePath.split(".")[0]
       : findImagepath.imagePath;
-      //console.log(`  Downloading Image: ${searchfor}`);
+    //console.log(`  Downloading Image: ${searchfor}`);
     const searchBlob = await yodaheaBucket.downloadBuffer(searchfor);
     if (!searchBlob) {
-      Logger.error( ` Error downloading image: ${searchfor}`);
+      Logger.error(` Error downloading image: ${searchfor}`);
       return "Error: Image not found";
     }
     //console.log(` Done Downloading Image: ${searchfor}`);
     return searchBlob;
   }
- 
+
   public async serveCompressedImage(imageName: string) {
     // Logger.warn(` Serving Compressed Image: ${imageName}`);
     const currentCache: any = await myCache.get(`dataMapCache`);
@@ -756,7 +775,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         ` Error: No Match Found in table: ${this.tableName} for image: ${imageName}`
       );
       return "Error: No Match Found";
-    }
+    } 
     const constructSearch = materialMatch.imagePath.includes(".")
       ? materialMatch.imagePath.split(".")[0]
       : materialMatch.imagePath;
@@ -992,9 +1011,9 @@ export default class TableLike<Type extends TableEntity<object>> {
 
   // **********  Helper Functions  ********** //
 
-  public async getFilters() {
+  public async getFilters(manualRefresh: boolean = false) {
     const checkCache: any = myCache.get(`dataCache${this.tableName}Filters`);
-    if (checkCache) {
+    if (checkCache && !manualRefresh) {
       Logger.warn(`Cache Found for filters of table ${this.tableName} ....`);
       return checkCache;
     } else {
@@ -1008,6 +1027,10 @@ export default class TableLike<Type extends TableEntity<object>> {
         );
         return [];
       } else {
+        // if manualrefresh passed display a logger
+        if (manualRefresh) {
+          Logger.warn(`Manual Refresh of Filters for ${this.tableName}`);
+        }
         // make a set of all tags with their counts
         dataCache.forEach((item: any) => {
           let tagsSplit: any = item.tags

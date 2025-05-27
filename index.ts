@@ -38,7 +38,10 @@ app.get("/", (req: Request, res: Response) => {
   res.send("Hello From Yodas Express + TypeScript Server");
 });
 
-app.listen(3030, async () => {
+// either look for PORT in .env or use 3030
+const PORT = process.env.PORT || 3030;
+
+app.listen(PORT, async () => {
   Logger.http(`⚡️ Server is running at http://localhost:3030`); //
   // await checkCompression();
 });

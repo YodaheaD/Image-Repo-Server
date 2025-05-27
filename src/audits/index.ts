@@ -269,7 +269,7 @@ auditRouter.post(
         if (!outcome) {
           return res.status(400).send("Error deleting entries");
         }
-        try {
+        try { 
           await auditsTable.auditHandler("Delete", imageName, []);
         } catch (err) {
           console.log(`Error in audit for ${imageName}`);

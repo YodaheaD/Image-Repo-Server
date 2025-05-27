@@ -1,3 +1,20 @@
+import bodyParser from "body-parser";
+import cors from "cors";
+import express, { Response, Request, Router } from "express";
+import multer from "multer";
+import Logger from "../utils/logger";
+import { newimages } from "../db/blobs";
+import { masterTableFinal, YodaheaTable } from "../db/masterdata";
+import dotenv from "dotenv";
+import { auditsTable } from "../db/audits";
+import logger from "../utils/logger";
+dotenv.config();
+export const dataRouter: Router = Router();
+
+dataRouter.use(cors());
+dataRouter.use(express.json());
+dataRouter.use(bodyParser.json());
+dataRouter.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 /**
  *  Main Router
  * ----------------
@@ -27,24 +44,6 @@
  * ** For returning the filters for the table
  *
  */
-
-import bodyParser from "body-parser";
-import cors from "cors";
-import express, { Response, Request, Router } from "express";
-import multer from "multer";
-import Logger from "../utils/logger";
-import { newimages } from "../db/blobs";
-import { masterTableFinal, YodaheaTable } from "../db/masterdata";
-import dotenv from "dotenv";
-import { auditsTable } from "../db/audits";
-import logger from "../utils/logger";
-dotenv.config();
-export const dataRouter: Router = Router();
-
-dataRouter.use(cors());
-dataRouter.use(express.json());
-dataRouter.use(bodyParser.json());
-dataRouter.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
 // -> GET: return the column names from the table,
 dataRouter.get(
@@ -133,7 +132,7 @@ dataRouter.get(
               endingDate
             );
           }
-         // Sort by dateTaken
+          // Sort by dateTaken
           // Remove the any No Date values from masterData and append to the end
 
           //
@@ -142,10 +141,9 @@ dataRouter.get(
             console.log(` For matched data size is ${yodaData[1]}`);
             res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
           } else {
-
             console.log(` For unmatched data size is ${yodaData[1]}`);
- 
-            res.send([yodaData[0], yodaimagesTotal,  yodaData[1]]);
+
+            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
           }
 
           break;

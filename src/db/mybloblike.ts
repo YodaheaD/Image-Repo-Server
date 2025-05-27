@@ -96,7 +96,7 @@ export class BlobLike {
       const uploadName = file.originalname.includes(".")
         ? file.originalname.split(".")[0]
         : file.originalname;
-      console.log(` -- Uploading to Blob:  ${uploadName}`);
+      console.log(` -- Uploading to Compressed Blob:  ${uploadName}`);
       const blobClient = containerClient.getBlockBlobClient(uploadName);
       const compressedBuffer: any = await sharp(file.buffer)
         .rotate() // Corrects the orientation based on EXIF data
@@ -148,7 +148,7 @@ export class BlobLike {
       Logger.error(`Error deleting filename: ${name} + ${err}`);
     }
   }
-
+ 
   public async renameBlob(oldname: string, newname: string) {
     try {
       const buffer = await this.downloadBuffer(oldname);

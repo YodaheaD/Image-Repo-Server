@@ -128,8 +128,15 @@ imagesRouter.post(
     }
     await auditsTable.auditHandler("Upload", data[0], req.files);
     //
-    Logger.info("Refreshing cache now ");
+    Logger.info("Refreshing cache now....");
     //await YodaheaTable.refreshMapCache();
+    try {
+      await YodaheaTable.rebuildCache();
+    } catch (err) {
+      Logger.error("Error rebuilding cache");
+    } finally {
+      Logger.info("Cache rebuilt successfully");
+    }
     res.send("Upload block blob successfully");
     // Send response back to client
   }
