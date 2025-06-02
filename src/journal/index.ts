@@ -119,7 +119,7 @@ journalRouter.post("/addname", async (req, res) => {
       entry.tripNumber
   );
 
-  if(!matchesFolder || matchesFolder.length === 0) {
+  if (!matchesFolder || matchesFolder.length === 0) {
     return res.status(400).send(`Folder ${foldername} does not exist`);
   }
 
@@ -170,97 +170,109 @@ journalRouter.post("/addname", async (req, res) => {
 // ** PUT /changename
 // route for chaning name of existing name in folder
 journalRouter.put("/changename", async (req, res) => {
-  const { foldername, oldname, newname } = req.query;
-  if (!foldername || !oldname || !newname) {
+  const { oldTitle, newTitle, foldername, tripNumber } = req.query;
+  if (!oldTitle || !newTitle || !foldername || !tripNumber) {
     return res
       .status(400)
-      .send("Please provide a folder name, old name and new name");
-  }
-  const alldata: any = await journalTable.straightQuery();
-  const allFolders = alldata.map((entry: { folder: string }) => entry.folder);
-
-  if (!allFolders.includes(foldername)) {
-    return res.status(400).send(`Folder ${foldername} does not exist`);
+      .send("Please provide oldTitle, newTitle, foldername and tripNumber");
   }
 
-  console.log(` Changing name from ${oldname} to ${newname}`);
-
-  const findOld = alldata.find(
-    (data: { rowKey: string }) => data.rowKey === foldername + "-" + oldname
+  const changeProcess = await journalTable.journalChangetitle(
+    String(oldTitle),
+    String(newTitle),
+    String(foldername),
+    Number(tripNumber)
   );
 
-  if (!findOld) {
-    return res.status(400).send(`Old Name: ${oldname} not found`);
-  }
+  if (changeProcess === true) {
+    // rename the blob file  under tripNumber/foldername/oldTitle.txt to tripNumber/foldername/newTitle.txt
+    const oldBlobName = `${foldername}/${oldTitle}.txt`;
 
-  const newobj = {
-    ...findOld,
-    rowKey: foldername + "-" + newname,
-    name: newname,
-  };
-  try {
-    await journalBucket.renameBlob(
-      foldername + "/" + oldname + ".txt",
-      foldername + "/" + newname + ".txt"
+    const newBlobName = `${foldername}/${newTitle}.txt`;
+
+    try {
+      await journalBucket.renameBlob(oldBlobName, newBlobName);
+    } catch (error) {
+      console.error("Error renaming blob:", error);
+      return res.status(500).send("Error renaming blob");
+    }
+
+    console.log(
+      `SUCCESS: Changed name from ${oldTitle} to ${newTitle} in folder ${foldername}`
     );
 
-    await journalTable.straightDelete(findOld.partitionKey, findOld.rowKey);
-    await journalTable.insertEntity(newobj);
-    return res.status(200).send(` Name updated from ${oldname} to ${newname}`);
-  } catch (err) {
-    return res.status(400).send("Error in updating name");
+    return res
+      .status(200)
+      .send(`SUCCESS: Changed name from ${oldTitle} to ${newTitle}`);
+  } else {
+    // some unknown error
+    res.status(400).send("Error in changing name, please check the inputs");
   }
 });
 
 // ** PUT /addimages
-// given the foldername and name, add images to the images string concatted with ,
-journalRouter.put("/addimages", async (req, res) => {
-  const { foldername, name, images } = req.query;
-  if (!foldername || !name || !images) {
-    res.status(400).send("Please provide a folder name, name and images");
+// Add images to a story: just log Title, tripNumber, and currentFolder, then respond "RECIEVED"
+journalRouter.put("/addImages", async (req, res) => {
+  const { Trip, Folder, Story } = req.query;
+  const { images } = req.body;
+
+  if (!Trip || !Folder || !Story) {
+    return res.status(400).send("Please provide Trip, Folder, and Story");
   }
-  const alldata: any = await journalTable.straightQuery();
-  const allFolders = alldata.map((entry: { folder: string }) => entry.folder);
-  if (!allFolders.includes(foldername)) {
-    return res.status(400).send(`Folder ${foldername} does not exist`);
-  }
-  const allNamesInFolder = alldata.filter(
-    (entry: { folder: string }) => entry.folder === foldername
+
+  console.log("Received addImages request:");
+  console.log(" - Trip:", Trip);
+  console.log(" - Folder:", Folder);
+  console.log(" - Story:", Story);
+  console.log(" - Images:", JSON.stringify(images));
+
+  // Here you would add your logic to actually add images to the story.
+  // For now, just respond as requested.
+  /**
+   * 
+   * [1] Received addImages request:
+[1]  - Trip: 1
+[1]  - Folder: CDMX
+[1]  - Story: Sunny Isnt it
+[1]  - Images: [{"imageName":"tiger","imageOrder":1},{"imageName":"Tiger posing with tree","imageOrder":2},{"imageName":"TigerAndOllie","imageOrder":3}]
+
+   */
+
+  // Find entry in journalTable with partitionKey = "journal" and rowKey = Folder + "-" + Story
+  const rowKey = `${Folder}-${Story}`;
+  const allData: any = await journalTable.straightQuery();
+  const entry = allData.find(
+    (item: any) => item.partitionKey === "journal" && item.rowKey === rowKey
   );
-  const allNames = allNamesInFolder.map(
-    (entry: { name: string }) => entry.name
-  );
-  if (!allNames.includes(name)) {
-    return res
-      .status(400)
-      .send(
-        `Name ${name} does not exist in folder ${foldername} with Titles: ${allNames.join(
-          ", "
-        )}`
-      );
+  if (!entry) {
+    return res.status(404).send(`Entry with rowKey ${rowKey} not found`);
   }
 
-  console.log(` Add images to name: ${name} in folder: ${foldername}`);
+  console.log(`Found entry with currentImages: ${entry.images}`);
 
-  const findOld = alldata.find(
-    (data: { rowKey: string }) => data.rowKey === foldername + "-" + name
+  // make one big string with  Images: [{"imageName":"tiger","imageOrder":1},{"imageName":"Tiger posing with tree","imageOrder":2},{"imageName":"TigerAndOllie","imageOrder":3}]
+  // Bu tmake sure to first order the images by imageOrder before stringifying
+  const orderedImages = images.sort(
+    (a: any, b: any) => a.imageOrder - b.imageOrder
   );
+  const imagesString = orderedImages.map((img: any) => img.imageName).join(",");
 
-  if (!findOld) {
-    res.status(400).send("Name not found");
-  }
+  console.log(" Original images:", entry.images);
+  console.log(" The New Images :", imagesString);
 
-  const newobj = {
-    ...findOld,
-    images: findOld.images.length > 0 ? findOld.images + "," + images : images,
-  };
+  // update the entry with the new images, the imageString already has the rpevious image so just append the new images
+
   try {
-    await journalTable.straightDelete(findOld.partitionKey, findOld.rowKey);
-    await journalTable.insertEntity(newobj);
-    res.status(200).send(` Images added to ${name}`);
-  } catch (err) {
-    res.status(400).send("Error in adding images");
+    await journalTable.updateEntity({
+      ...entry,
+      images: imagesString,
+    });
+  } catch (error) {
+    console.error("Error updating entry:", error);
+    return res.status(500).send("Error updating entry");
   }
+
+  res.send("RECIEVED");
 });
 
 // ** DELETE /removeImages
@@ -410,9 +422,89 @@ journalRouter.get("/returnText", async (req, res) => {
     if (!text) {
       return res.status(204).send("Content is empty");
     }
-    return res.status(200).send(text);
+    // get teh images for the story
+    const allData: any = await journalTable.straightQuery();
+    const storyData = allData.find(
+      (data: any) => data.folder === foldername && data.name === name
+    );
+    let imagesData ="";
+    if( storyData && storyData.images) {
+      imagesData = storyData.images.split(",").map((img: string) => img.trim());
+      console.log(` For story/folder - ${foldername}/${name} found images: ${imagesData}`);
+    }
+   
+    return res.status(200).send([text, imagesData]);
   } catch (error) {
     console.error(` Failed to retrieve text for ${blobName}:`);
     return res.status(500).send(` Failed to retrieve text for ${blobName}`);
   }
 });
+
+journalRouter.post("/editStory", async (req, res) => {
+  const { foldername, name, data } = req.body;
+  console.log("Received editStory request with:");
+  console.log(" - foldername:", foldername);
+  console.log(" - name:", name);
+  console.log(" - data:", data);
+
+  const getBlob = await journalBucket.download(`${foldername}/${name}.txt`);
+  // if no blob found, return correct status code to indicate no content
+  if (!getBlob) {
+    console.log(`No blob found for ${foldername}/${name}.txt`);
+    return res.status(204).send("No content found");
+  }
+
+  // if blob found, write the data to the blob
+  try {
+    const content = Buffer.from(data, "utf-8");
+    await journalBucket.uploadBuffer(`${foldername}/${name}.txt`, content);
+    console.log(`Successfully updated story for ${foldername}/${name}`);
+  } catch (error) {
+    console.error(`Error updating story for ${foldername}/${name}:`, error);
+    return res.status(500).send("Error updating story");
+  }
+
+  return res.status(200).send("Edited story successfully");
+});
+
+const tripTimeline = [
+  {
+    tripNumber: 1,
+    tripTitle: "Mexico",
+    tripDesc: "Trip to Mexico",
+  },
+  {
+    tripNumber: 2,
+    tripTitle: "Spain",
+    tripDesc: "Trip to Spain",
+  },
+  {
+    tripNumber: 3,
+    tripTitle: "Mexico Again",
+    tripDesc: "Trip to Mexico Again",
+  },
+  {
+    tripNumber: 4,
+    tripTitle: "Buenos Aires",
+    tripDesc: "Trip to Buenos Aires",
+  },
+  {
+    tripNumber: 5,
+    tripTitle: "Turkey Greece Italy",
+    tripDesc: "Trip to Turkey, Greece and Italy",
+  },
+  {
+    tripNumber: 6,
+    tripTitle: "Colombia Panama Guatemala",
+    tripDesc: "Trip to Colombia, Panama and Guatemala",
+  },
+];
+
+const returnTitle = (tripNumber: number) => {
+  const trip = tripTimeline.find((trip) => trip.tripNumber === tripNumber);
+  if (trip) {
+    return trip.tripTitle;
+  } else {
+    return "No title available";
+  }
+};

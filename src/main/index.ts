@@ -109,7 +109,7 @@ dataRouter.get(
           res.send([masterData, yodaimages, totalEntries]);
           break;
         case "YodaheaTable":
-          let yodaData = [];
+          let yodaData: any = [];
           if (searchInput !== "") {
             logger.info(`Searching for ${searchInput}`);
             yodaData = await YodaheaTable.mySearchData(searchInput);

@@ -12,5 +12,5 @@ import TableLike from "./mytablelike";
     dateTaken?: string;
     folder?: string;
   }
-
+ 
 export const imageMapTable = new TableLike<imageMapProps>("imagemap");

@@ -1,7 +1,7 @@
 import { TableClient, TableEntity, TableTransaction } from "@azure/data-tables";
 
 import Logger from "../utils/logger";
-import { isEmpty } from "lodash";
+import { isEmpty, partition } from "lodash";
 import NodeCache from "node-cache";
 
 import {
@@ -15,6 +15,7 @@ import { auditsTypes } from "./audits";
 import logger from "../utils/logger";
 import sharp from "sharp";
 import dotenv from "dotenv";
+import { journalTypes } from "./journal";
 dotenv.config();
 // Use emulated storage account for local development
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
@@ -117,11 +118,16 @@ export default class TableLike<Type extends TableEntity<object>> {
   private async searchData(search: string) {
     //Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    if (!currentCache || !Array.isArray(currentCache)) {
+      Logger.error(`No cache found or cache is not an array for ${this.tableName}`);
+      return []
+    }
     // make all images lowercase
 
     const searchResult = currentCache.filter((element: any) => {
-      const tempelement = element.imageName.toLowerCase();
-      return tempelement.includes(search.toLowerCase());
+      if (!element || !element.imageName) return false;
+      const tempElement = element.imageName.toLowerCase();
+      return tempElement.includes(search.toLowerCase());
     });
     if (searchResult.length === 0) {
       Logger.error(`No results found for ${search}`);
@@ -639,7 +645,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     if (this.tableName === "YodaheaTable") {
       this.buildMap(holder);
     }
-    // Now reset filter by passing manualrefresh as true 
+    // Now reset filter by passing manualrefresh as true
     this.getFilters(true);
     Logger.info(`${this.tableName} - Done re-setting cache \n`);
   }
@@ -775,7 +781,7 @@ export default class TableLike<Type extends TableEntity<object>> {
         ` Error: No Match Found in table: ${this.tableName} for image: ${imageName}`
       );
       return "Error: No Match Found";
-    } 
+    }
     const constructSearch = materialMatch.imagePath.includes(".")
       ? materialMatch.imagePath.split(".")[0]
       : materialMatch.imagePath;
@@ -1184,5 +1190,55 @@ export default class TableLike<Type extends TableEntity<object>> {
       return holder;
     }
     // pushing all data into array 'holder' which is then filtered
+  }
+
+  /** For Journal Entries */
+
+  public async journalChangetitle(
+    oldTitle: string,
+    newTitle: string,
+    foldername: string,
+    tripNumber: any
+  ) {
+    logger.warn(
+      `For Change ${newTitle} , searching for Title: ${oldTitle} in folder: ${foldername} and trip number: ${tripNumber}`
+    );
+
+    const oldEntryForTitle = await this.client?.getEntity<journalTypes>(
+      "journal",
+      `${foldername}-${oldTitle}`
+    );
+
+    if (!oldEntryForTitle) {
+      logger.error(
+        `No entry found for title: ${oldTitle} in folder: ${foldername}`
+      );
+      return "Error: No entry found";
+    }
+    try {
+      const newEntity: journalTypes = {
+        partitionKey: "journal",
+        rowKey: `${foldername}-${newTitle}`,
+        name: newTitle,
+        folder: foldername,
+        images: oldEntryForTitle.images,
+        startDate: oldEntryForTitle.startDate,
+        endDate: oldEntryForTitle.endDate,
+        tripNumber: oldEntryForTitle.tripNumber,
+      };
+      // create new entity
+      await this.client?.createEntity(newEntity);
+      logger.info(
+        `Successfully created new entry with title: ${newTitle} in folder: ${foldername} for old title: ${oldTitle}`
+      );
+
+      // delete old entry
+      await this.client?.deleteEntity("journal", `${foldername}-${oldTitle}`);
+
+      return true;
+    } catch (error) {
+      logger.error(`Error occured during title change, please try again`);
+      return null;
+    }
   }
 }
