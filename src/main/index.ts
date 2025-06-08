@@ -417,7 +417,43 @@ dataRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
   }
   res.send("Data updated");
 });
+// -> POST: change multiple data in the table
+dataRouter.post("/changeTags", async (req, res) => {
+  const data = req.body;
+  if (!data) {
+    // return a res wiht message
+    return res.status(400).send("No data recieved in the request");
+  }
 
+  console.log(` Data for Yodahea Change is ${JSON.stringify(data)}  `);
+  const etnries = data.imageNames;
+  for (let entry of etnries) {
+    const imageP = await YodaheaTable.mySearchData(entry);
+    const image = imageP[0];
+    if (!image) {
+      return res.status(404).send("Data not found");
+    }
+
+    const newTags = data.newValue;
+
+    const newEntity = {
+      ...image,
+      tags: newTags,
+    };
+    Logger.info(`Data found for update with RowKey ${newEntity.rowKey} `);
+    try {
+      const outcome = await YodaheaTable.updateEntity(newEntity);
+      Logger.info(
+        `Data Updated in Master for image ${entry} with tags: ${data.newValue}`
+      );
+    } catch (error) {
+      res.status(400).send("Error making changes to the data");
+    }
+  }
+  ///////////////////////////////////////////////
+
+  res.send("Data updated");
+});
 // --> POST: get filters for the table
 dataRouter.get(
   "/getFilters/:tableName",

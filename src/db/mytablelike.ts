@@ -584,7 +584,14 @@ export default class TableLike<Type extends TableEntity<object>> {
         };
         // check if the newEntity tags are a string or an array, if array convert to string
         if (Array.isArray(newEntity.tags)) {
-          newEntity.tags = newEntity.tags.join(",");
+          // Remove duplicates by converting to a Set, then join back to string
+          newEntity.tags = Array.from(new Set(newEntity.tags)).join(",");
+        } else {
+          // If it's a string, split to array, remove duplicates, then join back to string
+          const tagArr = newEntity.tags
+            ? newEntity.tags.split(",").map((tag: string) => tag.trim())
+            : [];
+          newEntity.tags = Array.from(new Set(tagArr)).join(",");
         }
 
         try {
@@ -1071,7 +1078,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     myCache.set(`dataCache${this.tableName}Filters`, newFilters, 10000);
     logger.warn(`Filters Refreshed for ${this.tableName}`);
   }
-
+ 
   //const currentCache: any = await myCache.get(`dataMapCache`);
 
   public async refreshMapCache() {
