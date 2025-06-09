@@ -59,7 +59,7 @@ dataRouter.get(
           break;
         default:
           Logger.error("Invalid Data Request for columns");
-          res.send("No valid table name provided");
+          res.status(404)
           break;
       }
     } catch (err) {
@@ -150,7 +150,7 @@ dataRouter.get(
 
         default:
           Logger.error("Invalid Data Request for table for " + tablename);
-          res.send("No valid table name provided");
+          res.status(404)
           break; //
       }
     } catch (err) {
@@ -217,7 +217,7 @@ dataRouter.get("/search/:tablename", async (req: Request, res: Response) => {
     console.log(" In search, ", checkForSearch);
     const removeSearchFromTable = tablename
       .replace(String(checkForSearch), "")
-      .replace("&", "");
+    
     switch (removeSearchFromTable) {
       case "masterdata":
         const masterData: any = await masterTableFinal.mySearchData(
@@ -234,7 +234,38 @@ dataRouter.get("/search/:tablename", async (req: Request, res: Response) => {
         break;
       default:
         Logger.error("Invalid Data Request for table");
-        res.send("No valid table name provided");
+        res.status(404)
+        break;
+    }
+    return;
+  }
+});
+dataRouter.get("/moresearch/:tablename", async (req: Request, res: Response) => {
+  const { tablename } = req.params;
+  const checkForSearch = req.query.search;
+  // get [object Object] so convert to string
+  if (checkForSearch) {
+    console.log(" In extended search, ", checkForSearch);
+    const removeSearchFromTable = tablename
+      .replace(String(checkForSearch), "")
+    
+    switch (removeSearchFromTable) {
+      case "masterdata":
+        const masterData: any = await masterTableFinal.myextendedSearch(
+          String(checkForSearch)
+        );
+        res.send(masterData);
+
+        break;
+      case "Yodahea":
+        const yodaData: any = await YodaheaTable.myextendedSearch(
+          String(checkForSearch)
+        );
+        res.send(yodaData);
+        break;
+      default:
+        Logger.error("Invalid Data Request for table");
+        res.status(404)
         break;
     }
     return;

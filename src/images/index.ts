@@ -53,7 +53,7 @@ imagesRouter.get(
     // if any missing params return default image
     if (!imagename || !tablename) {
       Logger.error("No image name or table name provided");
-      pipeDeafultImage(res);
+      res.status(404).send("No image found")
     }
     if (tablename === "YodaheaTable") {
       // console.info(` Searching for image ${imagename} in Yodahea Table`);
@@ -61,9 +61,9 @@ imagesRouter.get(
         //    const image = await YodaheaTable.serveImage(imagename, "Yodahea");
         const imagedata = await YodaheaTable.returnImage(imagename);
 
-        if (!imagedata) {
+        if (!imagedata || imagedata === null) {
           Logger.error(`No image found for ${imagename}`);
-          pipeDeafultImage(res);
+          return res.status(404).send("No image found for: "+ imagename);
         }
         // serve the image
         const convert = stream.Readable.from(imagedata);
@@ -74,11 +74,11 @@ imagesRouter.get(
         Logger.error(
           `Error fetching image Named " ${imagename} " from storage` + err
         );
-        pipeDeafultImage(res);
+        res.status(404).send("No image found for"+ imagename)
       }
     } else {
       console.log(` ERROR: error in retrieving image from ${tablename}`);
-      pipeDeafultImage(res);
+      res.status(404).send("No image found")
     }
   }
 );

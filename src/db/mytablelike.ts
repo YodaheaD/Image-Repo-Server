@@ -119,8 +119,10 @@ export default class TableLike<Type extends TableEntity<object>> {
     //Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     if (!currentCache || !Array.isArray(currentCache)) {
-      Logger.error(`No cache found or cache is not an array for ${this.tableName}`);
-      return []
+      Logger.error(
+        `No cache found or cache is not an array for ${this.tableName}`
+      );
+      return [];
     }
     // make all images lowercase
 
@@ -131,13 +133,47 @@ export default class TableLike<Type extends TableEntity<object>> {
     });
     if (searchResult.length === 0) {
       Logger.error(`No results found for ${search}`);
-      return "No results found";
+      return [];
     }
     // sort based on image name
     searchResult.sort((a: any, b: any) => {
       return a.imageName.localeCompare(b.imageName);
     });
     return searchResult;
+  }
+  private async extendedSearch(search: string) {
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    if (!currentCache || !Array.isArray(currentCache)) {
+      Logger.error(
+        `No cache found or cache is not an array for ${this.tableName}`
+      );
+      return { imageNameSearch: [], tagsSearch: [] };
+    }
+
+    const lowerSearch = search.toLowerCase();
+
+    // Search in imageName
+    const imageNameSearch = currentCache
+      .filter((element: any) => {
+        if (!element || !element.imageName) return false;
+        return element.imageName.toLowerCase().includes(lowerSearch);
+      })
+      .sort((a: any, b: any) => a.imageName.localeCompare(b.imageName));
+
+    // Use getFilters to get all tags and filter them by search
+    const filters = await this.getFilters();
+    const tagsSearch = filters
+      .filter((tagObj: any) =>
+        tagObj.tagName.toLowerCase().includes(lowerSearch)
+      )
+      .map((tagObj: any) => tagObj.tagName);
+
+    if (imageNameSearch.length === 0 && tagsSearch.length === 0) {
+      Logger.error(`No results found for ${search}`);
+      return [];
+    }
+
+    return { imageNameSearch, tagsSearch };
   }
 
   // -> 'myGetDataLimit()' -- similar to myGetData() but with a limit
@@ -283,7 +319,10 @@ export default class TableLike<Type extends TableEntity<object>> {
   public async mySearchData(search: string) {
     return this.searchData(search);
   }
-
+  public async myextendedSearch(search: string) {
+    if (!search) return "";
+    return this.extendedSearch(search);
+  }
   public async getExactDataByImageName(imageName: string) {
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     const searchResult = currentCache.filter(
@@ -291,7 +330,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     );
     if (searchResult.length === 0) {
       Logger.error(`No results found for ${imageName}`);
-      return "No results found";
+      return [];
     }
     return searchResult;
   }
@@ -745,7 +784,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     const mapCache: any = myCache.get(`dataMapCache`);
     if (!mapCache) {
       Logger.error(` Error: No Cache Found`);
-      return "Error: No Cache Found";
+      return null;
     }
     //console.log(` Searching for Image: ${imageName}`);
     const findImagepath = mapCache.find(
@@ -753,7 +792,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     );
     if (!findImagepath) {
       Logger.error(` Error: No Image Found for ${imageName}`);
-      return "Error: No Image Found";
+      return null;
     }
     //logger.warn(` Image Found: ${findImagepath.imagePath}.. getting image`);
 
@@ -765,7 +804,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     const searchBlob = await yodaheaBucket.downloadBuffer(searchfor);
     if (!searchBlob) {
       Logger.error(` Error downloading image: ${searchfor}`);
-      return "Error: Image not found";
+      return null;
     }
     //console.log(` Done Downloading Image: ${searchfor}`);
     return searchBlob;
@@ -1078,7 +1117,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     myCache.set(`dataCache${this.tableName}Filters`, newFilters, 10000);
     logger.warn(`Filters Refreshed for ${this.tableName}`);
   }
- 
+
   //const currentCache: any = await myCache.get(`dataMapCache`);
 
   public async refreshMapCache() {
