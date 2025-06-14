@@ -59,7 +59,7 @@ dataRouter.get(
           break;
         default:
           Logger.error("Invalid Data Request for columns");
-          res.status(404)
+          res.status(404);
           break;
       }
     } catch (err) {
@@ -113,6 +113,8 @@ dataRouter.get(
           if (searchInput !== "") {
             logger.info(`Searching for ${searchInput}`);
             yodaData = await YodaheaTable.mySearchData(searchInput);
+            res.send([yodaData, [], yodaData.length]);
+            return;
           } else {
             logger.warn(` Querying with options:
               start: ${startPoint},
@@ -150,7 +152,107 @@ dataRouter.get(
 
         default:
           Logger.error("Invalid Data Request for table for " + tablename);
-          res.status(404)
+          res.status(404);
+          break; //
+      }
+    } catch (err) {
+      Logger.info(err);
+    } //
+  }
+);
+dataRouter.get(
+  "/getAllDataTest",
+
+  async (req: Request, res: Response) => {
+    const {
+      start,
+      limit,
+      showUnmatched,
+      tags,
+      search,
+      tablename,
+      startdate,
+      enddate,
+    } = req.query;
+    const startPoint = start || process.env.STARTPOINT;
+    const limitPoint = limit || process.env.MAXLIMIT;
+    const unmatchedChoice = showUnmatched === "true" ? true : false;
+    const tagsInput = tags ? String(tags).split(",") : [];
+    const searchInput = search ? String(search) : "";
+    // look for start and end dates, if none make 0
+    const startingDate = startdate ? Number(startdate) : 0;
+    const endingDate = enddate ? Number(enddate) : 0;
+    try {
+      // Get table name from req and return data from there
+      switch (tablename) {
+        case "masterdata":
+          let masterData: any = await masterTableFinal.myGetDataLimit(
+            Number(startPoint),
+            Number(limitPoint)
+          );
+
+          let totalEntries = await masterTableFinal.numberOfImages();
+          // Sort by dateTaken
+          // Remove the any No Date values from masterData and append to the end
+
+          //
+          const yodaimages = await newimages.listImages();
+          res.send([masterData, yodaimages, totalEntries]);
+          break;
+        case "YodaheaTable":
+          let yodaData: any = [];
+          if (searchInput !== "") {
+            logger.info(`Searching for in LUNR ${searchInput}`);
+            yodaData = await YodaheaTable.getDataLUNR(searchInput);
+            let totalEntries = yodaData.length;
+            logger.info(`Found ${totalEntries} entries for ${searchInput}`);
+
+            // res.send([yodaData, [], yodaData.length]);
+            // Im forgetting to paginate here, thats why loading is taking so long its returning all data
+            let slicied = yodaData.slice(
+              Number(startPoint),
+              Number(startPoint) + Number(limitPoint)
+            );
+            res.send([slicied, [],  totalEntries]);
+            return;
+          } else {
+            logger.warn(` Querying with options:
+              start: ${startPoint},
+              limit: ${limitPoint},
+              showUnmatched: ${unmatchedChoice},
+              tags: ${tagsInput},
+              search: ${searchInput},
+              startdate: ${new Date(startingDate)},
+              enddate:  ${new Date(endingDate)}`);
+
+            yodaData = await YodaheaTable.myGetDataLimit(
+              Number(startPoint),
+              Number(limitPoint),
+              unmatchedChoice,
+              tagsInput,
+              startingDate,
+              endingDate
+            );
+          }
+          // Sort by dateTaken
+          // Remove the any No Date values from masterData and append to the end
+
+          //
+          const yodaimagesTotal = await newimages.listImages();
+          if (unmatchedChoice === false) {
+            console.log(` For matched data size is ${yodaData[1]}`);
+            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+          } else {
+            console.log(` For unmatched data size is ${yodaData[1]}`);
+
+            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+          }
+
+          break;
+
+        default:
+          Logger.error("Invalid Data Request for table for " + tablename);
+          res.status(404);
           break; //
       }
     } catch (err) {
@@ -214,10 +316,9 @@ dataRouter.get("/search/:tablename", async (req: Request, res: Response) => {
   const checkForSearch = req.query.search;
   // get [object Object] so convert to string
   if (checkForSearch) {
-    console.log(" In search, ", checkForSearch);
-    const removeSearchFromTable = tablename
-      .replace(String(checkForSearch), "")
-    
+    console.log(" In search, ", checkForSearch, " for table ", tablename);
+    const removeSearchFromTable = tablename.replace(String(checkForSearch), "");
+
     switch (removeSearchFromTable) {
       case "masterdata":
         const masterData: any = await masterTableFinal.mySearchData(
@@ -234,43 +335,48 @@ dataRouter.get("/search/:tablename", async (req: Request, res: Response) => {
         break;
       default:
         Logger.error("Invalid Data Request for table");
-        res.status(404)
+        res.status(404).send("Invalid Data Request for table");
         break;
     }
     return;
   }
 });
-dataRouter.get("/moresearch/:tablename", async (req: Request, res: Response) => {
-  const { tablename } = req.params;
-  const checkForSearch = req.query.search;
-  // get [object Object] so convert to string
-  if (checkForSearch) {
-    console.log(" In extended search, ", checkForSearch);
-    const removeSearchFromTable = tablename
-      .replace(String(checkForSearch), "")
-    
-    switch (removeSearchFromTable) {
-      case "masterdata":
-        const masterData: any = await masterTableFinal.myextendedSearch(
-          String(checkForSearch)
-        );
-        res.send(masterData);
+dataRouter.get(
+  "/moresearch/:tablename",
+  async (req: Request, res: Response) => {
+    const { tablename } = req.params;
+    const checkForSearch = req.query.search;
+    // get [object Object] so convert to string
+    if (checkForSearch) {
+      console.log(" In extended search, ", checkForSearch);
+      const removeSearchFromTable = tablename.replace(
+        String(checkForSearch),
+        ""
+      );
 
-        break;
-      case "Yodahea":
-        const yodaData: any = await YodaheaTable.myextendedSearch(
-          String(checkForSearch)
-        );
-        res.send(yodaData);
-        break;
-      default:
-        Logger.error("Invalid Data Request for table");
-        res.status(404)
-        break;
+      switch (removeSearchFromTable) {
+        case "masterdata":
+          const masterData: any = await masterTableFinal.myextendedSearch(
+            String(checkForSearch)
+          );
+          res.send(masterData);
+
+          break;
+        case "Yodahea":
+          const yodaData: any = await YodaheaTable.myextendedSearch(
+            String(checkForSearch)
+          );
+          res.send(yodaData);
+          break;
+        default:
+          Logger.error("Invalid Data Request for table");
+          res.status(404);
+          break;
+      }
+      return;
     }
-    return;
   }
-});
+);
 
 // -> POST: change data in the table
 dataRouter.post("/changeDataNew/:tableName", async (req, res) => {
@@ -489,8 +595,10 @@ dataRouter.post("/changeTags", async (req, res) => {
 dataRouter.get(
   "/getFilters/:tableName",
   async (req: Request, res: Response) => {
-    const { tableName } = req.params;
-
+    let { tableName } = req.params;
+    if (!tableName) {
+      tableName = "YodaheaTable";
+    }
     switch (tableName) {
       case "YodaheaTable":
         const filtersYodahea = await YodaheaTable.getFilters();

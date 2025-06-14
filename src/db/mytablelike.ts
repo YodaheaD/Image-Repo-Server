@@ -16,6 +16,7 @@ import logger from "../utils/logger";
 import sharp from "sharp";
 import dotenv from "dotenv";
 import { journalTypes } from "./journal";
+import lunr from "lunr";
 dotenv.config();
 // Use emulated storage account for local development
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
@@ -116,7 +117,6 @@ export default class TableLike<Type extends TableEntity<object>> {
     }
   }
   private async searchData(search: string) {
-    //Logger.warn(`Searching for ${search} in ${this.tableName} table ....`);
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     if (!currentCache || !Array.isArray(currentCache)) {
       Logger.error(
@@ -124,21 +124,114 @@ export default class TableLike<Type extends TableEntity<object>> {
       );
       return [];
     }
-    // make all images lowercase
 
-    const searchResult = currentCache.filter((element: any) => {
+    const lowerSearch = search.toLowerCase();
+
+    // Find by imageName
+    const imageNameMatches = currentCache.filter((element: any) => {
       if (!element || !element.imageName) return false;
-      const tempElement = element.imageName.toLowerCase();
-      return tempElement.includes(search.toLowerCase());
+      return element.imageName.toLowerCase().includes(lowerSearch);
     });
+
+    // Find by tags
+    const tagMatches = currentCache.filter((element: any) => {
+      if (!element || !element.tags) return false;
+      // Split tags, trim, and check if any tag matches the search
+      return element.tags
+        .split(",")
+        .map((tag: string) => tag.trim().toLowerCase())
+        .some((tag: string) => tag.includes(lowerSearch));
+    });
+
+    // Merge and deduplicate by rowKey (or imageName if rowKey not present)
+    const merged = [...imageNameMatches, ...tagMatches];
+    const seen = new Set();
+    const searchResult = merged.filter((item: any) => {
+      const key = item.rowKey || item.imageName;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     if (searchResult.length === 0) {
       Logger.error(`No results found for ${search}`);
       return [];
     }
-    // sort based on image name
+
+    // Sort based on image name
     searchResult.sort((a: any, b: any) => {
       return a.imageName.localeCompare(b.imageName);
     });
+    return searchResult;
+  }
+
+ public async getDataLUNR(search: string) {
+    if (!search) {
+      // If no search is provided, return all data
+      return []
+    }
+  
+      // Perform imageName search
+      return this.lunrSearchData(search);
+    }
+   
+
+  // Lunr.js search function for imageName and tags
+  private async lunrSearchData(search: string) {
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    if (!currentCache || !Array.isArray(currentCache)) {
+      Logger.error(
+        `No cache found or cache is not an array for ${this.tableName}`
+      );
+      return [];
+    }
+
+    // Build lunr index (in-memory, per search)
+    const idx = lunr(function (this: lunr.Builder) {
+      this.ref("rowKey");
+      this.field("imageName");
+      this.field("tags");
+      currentCache.forEach((doc: any) => {
+        // Only index if imageName exists
+        if (doc && doc.imageName) {
+          this.add({
+            rowKey: doc.rowKey || doc.imageName,
+            imageName: doc.imageName,
+            tags: doc.tags || "",
+          });
+        }
+      });
+    });
+
+    // Perform search
+    const results = idx.search(`*${search}*`);
+
+    // Map results to original objects
+    const resultSet = new Set<string>();
+    const searchResult = results
+      .map((res: { ref: string; }) => {
+        const match = currentCache.find(
+          (item) =>
+            (item.rowKey || item.imageName) === res.ref &&
+            !resultSet.has(res.ref)
+        );
+        if (match) {
+          resultSet.add(res.ref);
+          return match;
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (searchResult.length === 0) {
+      Logger.error(`No results found for ${search}`);
+      return [];
+    }
+
+    // Sort by imageName
+    searchResult.sort((a: any, b: any) =>
+      a.imageName.localeCompare(b.imageName)
+    );
     return searchResult;
   }
   private async extendedSearch(search: string) {
@@ -710,6 +803,7 @@ export default class TableLike<Type extends TableEntity<object>> {
           imageName: item.imageName,
           imagePath: item.imagePath,
           dateTaken: item.dateTaken,
+          imageBase64: item.imageBase64 || "",
         };
       });
       myCache.set(`dataMapCache`, mapData, 10000);
@@ -809,7 +903,147 @@ export default class TableLike<Type extends TableEntity<object>> {
     //console.log(` Done Downloading Image: ${searchfor}`);
     return searchBlob;
   }
+  // Mini image cache: imagePath -> base64 image content
+  /**
+   * How it works:
+   * 1. When an image is requested, it first checks the mini cache.
+   * 2. If the image is found in the mini cache, it returns the base64 content as a Buffer.
+   * 3. If not found, it downloads the image from the main storage bucket, converts it to base64, and stores it in the mini cache.
+   * 4. The mini cache has a TTL of 10 minutes (600 seconds) and checks every 2 minutes (120 seconds).
+   *  TTL means "Time To Live", which is the duration for which the cached data is valid.
+   * Purpose:
+   * The mini cache is designed to speed up the retrieval of frequently accessed images by storing them in a smaller, faster cache.
+   */
+  private imageMiniCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
 
+  // --> 'returnImage()' - Function to return an image from the table
+  public async returnImageWithImageCache(imageName: string) {
+    const mapCache: any = myCache.get(`dataMapCache`);
+    if (!mapCache) {
+      Logger.error(` Error: No Cache Found`);
+      return null;
+    }
+    const findImagepath = mapCache.find(
+      (element: any) => element.imageName.trim() === imageName.trim()
+    );
+    if (!findImagepath) {
+      Logger.error(` Error: No Image Found for ${imageName}`);
+      return null;
+    }
+
+    // 1. Check if imageBase64 is present in mapCache entry
+    if (findImagepath.imageBase64 && findImagepath.imageBase64.length > 0) {
+      Logger.info(`Image ${imageName} served from mapCache imageBase64`);
+      return Buffer.from(findImagepath.imageBase64, "base64");
+    }
+    // create search for, if . in then split if not keep normal
+    const searchfor = findImagepath.imagePath.includes(".")
+      ? findImagepath.imagePath.split(".")[0]
+      : findImagepath.imagePath;
+    // 2. Check mini image cache first
+    const cachedBase64 = this.imageMiniCache.get<string>(searchfor);
+    if (cachedBase64) {
+      Logger.info(`Image ${searchfor} served from mini cache`);
+      // Also update mapCache entry for future
+      findImagepath.imageBase64 = cachedBase64;
+      myCache.set(`dataMapCache`, mapCache, 10000);
+      return Buffer.from(cachedBase64, "base64");
+    }
+
+    // 3. Not in mini cache, download from storage
+    const searchBlob = await yodaheaBucket.downloadBuffer(searchfor);
+    if (!searchBlob) {
+      Logger.error(` Error downloading image: ${searchfor}`);
+      return null;
+    }
+
+    // Store in mini cache as base64
+    const base64Content = searchBlob.toString("base64");
+    this.imageMiniCache.set(searchfor, base64Content);
+
+    // Update mapCache entry with imageBase64
+    findImagepath.imageBase64 = base64Content;
+    myCache.set(`dataMapCache`, mapCache, 10000);
+
+    return searchBlob;
+  }
+
+  private compressedImageMiniCache = new NodeCache({
+    stdTTL: 600, // 10 minutes
+    checkperiod: 120, // Check every 2 minutes
+  });
+  // --> 'returnCompressedImageWithCache()' - Function to return a compressed image from the table with mini cache
+  public async returnCompressedImageWithCache(imageName: string) {
+    const mapCache: any = myCache.get(`dataMapCache`);
+    if (!mapCache) {
+      Logger.error(` Error: No Cache Found`);
+      return null;
+    }
+    const findImagepath = mapCache.find(
+      (element: any) => element.imageName.trim() === imageName.trim()
+    );
+    if (!findImagepath) {
+      Logger.error(` Error: No Image Found for ${imageName}`);
+      return null;
+    }
+
+    const searchfor = findImagepath.imagePath.includes(".")
+      ? findImagepath.imagePath.split(".")[0]
+      : findImagepath.imagePath;
+
+    // Check compressed mini cache first
+    const cachedCompressedBase64 =
+      this.compressedImageMiniCache.get<string>(searchfor);
+    if (cachedCompressedBase64) {
+      Logger.info(
+        `Compressed image ${searchfor} served from compressed mini cache`
+      );
+      // Optionally, you can store this in mapCache as well if needed
+      findImagepath.compressedImageBase64 = cachedCompressedBase64;
+      myCache.set(`dataMapCache`, mapCache, 10000);
+      return Buffer.from(cachedCompressedBase64, "base64");
+    }
+
+    // Not in mini cache, download original image from storage
+    const downloadImage = await yodaheaBucket.downloadBuffer(searchfor);
+    if (!downloadImage) {
+      Logger.error(` Error downloading image: ${searchfor}`);
+      return null;
+    }
+
+    // Compress the image
+    let compressedBuffer: Buffer | null = null;
+    try {
+      compressedBuffer = await sharp(downloadImage)
+        .rotate()
+        .resize(375, 375, {
+          fit: "contain",
+          withoutEnlargement: true,
+          background: { r: 255, g: 255, b: 255 },
+        })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .toFormat("webp", { quality: 100 })
+        .toBuffer();
+    } catch (e) {
+      Logger.error("Error compressing image");
+      return null;
+    }
+
+    if (!compressedBuffer) {
+      Logger.error("Error compressing image");
+      return null;
+    }
+
+    // Store compressed image in mini cache as base64
+    const compressedBase64 = compressedBuffer.toString("base64");
+    this.compressedImageMiniCache.set(searchfor, compressedBase64);
+
+    // Optionally, update mapCache entry with compressed base64
+    findImagepath.compressedImageBase64 = compressedBase64;
+    myCache.set(`dataMapCache`, mapCache, 10000);
+
+    return compressedBuffer;
+  }
   public async serveCompressedImage(imageName: string) {
     // Logger.warn(` Serving Compressed Image: ${imageName}`);
     const currentCache: any = await myCache.get(`dataMapCache`);
@@ -1071,7 +1305,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     } else {
       // get the tables cache
       const dataCache: any = myCache.get(`dataCache${this.tableName}`);
-      let tags: { tagName: string; tagCount: number }[] = [];
+      let tags: { tagName: string; tagCount: number; tagColor?: string }[] = [];
       // if there's no cache, build it
       if (!dataCache) {
         Logger.error(
@@ -1101,6 +1335,16 @@ export default class TableLike<Type extends TableEntity<object>> {
         });
         // sort tags alphabetically
         tags = tags.sort((a, b) => a.tagName.localeCompare(b.tagName));
+
+        // Assign tagColor to each tag
+        const startColor = 0xff0000; // Start from red (#ff0000)
+        //const increment = 0x000a0a; // Smaller increment for smoother color transition
+         const increment = 0x001122; // Increment by this hex value for each tag
+        tags.forEach((tag, idx) => {
+          let color = (startColor + increment * idx) & 0xffffff;
+          tag.tagColor = `#${color.toString(16).padStart(6, "0")}`;
+        });
+ 
         // set the cache
         myCache.set(`dataCache${this.tableName}Filters`, tags, 10000);
 
@@ -1183,6 +1427,16 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     return FullCache;
   }
+  public async checkMapCache() {
+    const mapCache: any = myCache.get(`dataMapCache`);
+    if (!mapCache) {
+      Logger.error(` No Map Cache Found for ${this.tableName}`);
+      return "Error: No Map Cache Found";
+    }
+    Logger.info(` Map Cache Found for ${this.tableName}`);
+    return mapCache;
+  }
+
   // -> Error catcher function
   private catcher(err: any) {
     if (err.statusCode !== 409) {

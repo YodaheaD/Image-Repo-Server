@@ -30,6 +30,20 @@ utilsRouter.get(
     }
   }
 );
+// Return Full cache
+utilsRouter.get(
+  "/viewMapCache",
+  async (req: Request, res: Response) => {
+ 
+    const data = await YodaheaTable.checkMapCache();
+    if(!data) {
+      Logger.error("No map cache found");
+      res.status(404).send("No map cache found");
+      return;
+    }
+    res.send(data);
+  }
+);
 
 // return number of images in the storage
 utilsRouter.get("/imagecount", async (req: Request, res: Response) => {

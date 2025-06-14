@@ -53,7 +53,7 @@ imagesRouter.get(
     // if any missing params return default image
     if (!imagename || !tablename) {
       Logger.error("No image name or table name provided");
-      res.status(404).send("No image found")
+      res.status(404).send("No image found");
     }
     if (tablename === "YodaheaTable") {
       // console.info(` Searching for image ${imagename} in Yodahea Table`);
@@ -63,7 +63,7 @@ imagesRouter.get(
 
         if (!imagedata || imagedata === null) {
           Logger.error(`No image found for ${imagename}`);
-          return res.status(404).send("No image found for: "+ imagename);
+          return res.status(404).send("No image found for: " + imagename);
         }
         // serve the image
         const convert = stream.Readable.from(imagedata);
@@ -74,11 +74,11 @@ imagesRouter.get(
         Logger.error(
           `Error fetching image Named " ${imagename} " from storage` + err
         );
-        res.status(404).send("No image found for"+ imagename)
+        res.status(404).send("No image found for" + imagename);
       }
     } else {
       console.log(` ERROR: error in retrieving image from ${tablename}`);
-      res.status(404).send("No image found")
+      res.status(404).send("No image found");
     }
   }
 );
@@ -167,6 +167,59 @@ imagesRouter.get("/RandomImage", async (req: Request, res: Response) => {
     "Chap_Castle_Mural",
   ]);
 });
+// --> GET: serve an image from the storage using image cache
+imagesRouter.get(
+  "/getImg/:imagename",
+  async (req: Request, res: Response) => {
+    const { imagename } = req.params;
+    if (!imagename) {
+      Logger.error("No image name provided");
+      return res.status(404).send("No image found");
+    }
+
+    try {
+      // Use the new cache-enabled function
+      const imagedata = await YodaheaTable.returnImageWithImageCache(imagename);
+
+      if (!imagedata) {
+        Logger.error(`No image found for ${imagename}`);
+        return res.status(404).send("No image found for: " + imagename);
+      }
+      const convert = stream.Readable.from(imagedata);
+      res.setHeader("Content-Type", "image/jpeg");
+      convert.pipe(res);
+    } catch (err) {
+      Logger.error(
+        `Error fetching image Named "${imagename}" from storage: ${err}`
+      );
+      res.status(404).send("No image found for " + imagename);
+    }
+  }
+);
+// --> GET: serve a Compressed image from the storage (for speed)
+imagesRouter.get(
+  "/getComp/:imagename",
+  async (req: Request, res: Response) => {
+    const { imagename } = req.params;
+
+    try {
+      // Use imageName as the key for the dataMapCache
+      const getImageData = await YodaheaTable.returnCompressedImageWithCache(imagename);
+      if (!getImageData) {
+        Logger.error(
+          `Error fetching compressed image ${imagename} from storage`
+        );
+        return res.status(400).send("No compressed image found");
+      }
+      const convert = stream.Readable.from(getImageData);
+      res.setHeader("Content-Type", "image/webp");
+      convert.pipe(res);
+    } catch (err) {
+      Logger.error(`Error fetching compressed image ${imagename} from storage`);
+      res.status(400).send("Error fetching compressed image");
+    }
+  }
+);
 
 // --- Helper Functions --- //
 const randomimage = (alreadyUsed: any, current: any, length: any) => {
