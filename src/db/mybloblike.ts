@@ -89,29 +89,40 @@ export class BlobLike {
       await blobClient.uploadData(file.buffer);
     }
   }
-
   public async uploadMulterCompress(files: any) {
     const containerClient = client.getContainerClient(this.containerName);
+    const errorContainerClient = client.getContainerClient("errors");
+
     for (const file of files) {
       const uploadName = file.originalname.includes(".")
         ? file.originalname.split(".")[0]
         : file.originalname;
       console.log(` -- Uploading to Compressed Blob:  ${uploadName}`);
       const blobClient = containerClient.getBlockBlobClient(uploadName);
-      const compressedBuffer: any = await sharp(file.buffer)
-        .rotate() // Corrects the orientation based on EXIF data
-        .resize(375, 375, {
-          fit: "contain",
-          withoutEnlargement: true,
-          background: { r: 255, g: 255, b: 255 },
-        })
-        .flatten({ background: { r: 255, g: 255, b: 255 } })
-        .toFormat("webp", { quality: 100 })
-        .toBuffer()
-        .catch((e) => {
-          console.log("Error compressing image");
-        });
-      await blobClient.uploadData(compressedBuffer);
+
+      let compressedBuffer: Buffer | undefined;
+      try {
+        compressedBuffer = await sharp(file.buffer)
+          .rotate()
+          .resize(375, 375, {
+            fit: "contain",
+            withoutEnlargement: true,
+            background: { r: 255, g: 255, b: 255 },
+          })
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .toFormat("webp", { quality: 100 })
+          .toBuffer();
+      } catch (e) {
+        console.log("Error compressing image");
+      }
+
+      if (compressedBuffer) {
+        await blobClient.uploadData(compressedBuffer);
+      } else {
+        // Upload original buffer to errors/ folder
+        const errorBlobClient = errorContainerClient.getBlockBlobClient(`errors/${uploadName}`);
+        await errorBlobClient.uploadData(file.buffer);
+      }
     }
   }
 

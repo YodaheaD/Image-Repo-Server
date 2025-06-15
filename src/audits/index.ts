@@ -255,37 +255,26 @@ auditRouter.post("/changeDataMultiple/:tableName/:field", async (req, res) => {
 });
 
 // --> Delete: delete list of entries using fullDeleteProcess
-auditRouter.post(
-  "/deleteEntries/:tableName",
-  async (req: Request, res: Response) => {
-    const { tableName } = req.params;
-    const { imageNames } = req.body;
-    if (!imageNames) {
-      return res.status(400).send("No image names provided");
-    }
-    if (tableName === "YodaheaTable") {
-      for (let imageName of imageNames) {
-        const outcome = await YodaheaTable.fullDeleteProcess(imageName);
-        if (!outcome) {
-          return res.status(400).send("Error deleting entries");
-        }
-        try { 
-          await auditsTable.auditHandler("Delete", imageName, []);
-        } catch (err) {
-          console.log(`Error in audit for ${imageName}`);
-        }
-      }
-    } else {
-      for (let imageName of imageNames) {
-        const outcome = await masterTableFinal.fullDeleteProcess(imageName);
-        if (!outcome) {
-          return res.status(400).send("Error deleting entries");
-        }
-      }
-    }
-    res.send("Entries deleted");
+auditRouter.post("/deleteEntries", async (req: Request, res: Response) => {
+   const { imageNames } = req.body;
+  if (!imageNames) {
+    return res.status(400).send("No image names provided");
   }
-);
+
+  for (let imageName of imageNames) {
+    const outcome = await YodaheaTable.fullDeleteProcess(imageName);
+    if (!outcome) {
+      return res.status(400).send("Error deleting entries");
+    }
+    try {
+      await auditsTable.auditHandler("Delete", imageName, []);
+    } catch (err) {
+      console.log(`Error in audit for ${imageName}`);
+    }
+  }
+
+  res.send("Entries deleted");
+});
 
 // -. APi to refresh comp table
 auditRouter.get("/refreshComp", async (req, res) => {

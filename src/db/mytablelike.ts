@@ -244,35 +244,66 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     const lowerSearch = search.toLowerCase();
 
-    // Search in imageName
-    let imageNameSearch = currentCache
-      .filter((element: any) => {
-        if (!element || !element.imageName) return false;
-        return element.imageName.toLowerCase().includes(lowerSearch);
-      })
-      .sort((a: any, b: any) => a.imageName.localeCompare(b.imageName));
+    // Use lunr to search imageName and tags
+    const idx = lunr(function (this: lunr.Builder) {
+      this.ref("rowKey");
+      this.field("imageName");
+      this.field("tags");
+      currentCache.forEach((doc: any) => {
+        if (doc && doc.imageName) {
+          this.add({
+            rowKey: doc.rowKey || doc.imageName,
+            imageName: doc.imageName,
+            tags: doc.tags || "",
+          });
+        }
+      });
+    });
 
-    // Use getFilters to get all tags and filter them by search
-    const filters = await this.getFilters();
-    let tagsSearch = filters
-      .filter((tagObj: any) =>
-        tagObj.tagName.toLowerCase().includes(lowerSearch)
+    // Search for imageName matches
+    const imageNameResults = idx.search(`imageName:*${lowerSearch}*`);
+
+    // Keep the order as returned by lunr (by relevance)
+    let imageNameSearch = imageNameResults
+      .map((result: any) =>
+        currentCache.find(
+          (item: any) => (item.rowKey || item.imageName) === result.ref
+        )
       )
-      .map((tagObj: any) => tagObj.tagName);
+      .filter(Boolean);
+
+    // Search for tag matches using lunr
+    const tagsResults = idx.search(`tags:*${lowerSearch}*`);
+
+    // Get all tags from matched documents, keep order as found
+    let tagsSearch: string[] = [];
+    tagsResults.forEach((result: any) => {
+      const item = currentCache.find(
+        (doc: any) => (doc.rowKey || doc.imageName) === result.ref
+      );
+      if (item && item.tags) {
+        tagsSearch.push(...item.tags.split(",").map((t: string) => t.trim()));
+      }
+    });
+    // Deduplicate and filter tags by search, keep order as found
+    const seenTags = new Set<string>();
+    tagsSearch = tagsSearch.filter((tag) => {
+      const match = tag.toLowerCase().includes(lowerSearch) && !seenTags.has(tag);
+      if (match) seenTags.add(tag);
+      return match;
+    });
 
     if (imageNameSearch.length === 0 && tagsSearch.length === 0) {
       Logger.error(`No results found for ${search}`);
       return [];
     }
 
-    const limitSearch = 30; // Limit for each search
-    // limit each search to 30 results
+    const limitSearch = 30;
     if (imageNameSearch.length > limitSearch) {
       imageNameSearch = imageNameSearch.slice(0, limitSearch);
     }
-    // limit tags search to 30 results
     if (tagsSearch.length > limitSearch) {
-      tagsSearch = tagsSearch.slice(0,  limitSearch);
+      tagsSearch = tagsSearch.slice(0, limitSearch);
     }
 
     return { imageNameSearch, tagsSearch };
@@ -475,7 +506,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     );
 
     // archive the image by uploading its data into the deletedImages bucket
-
+ 
     try {
       await yodaheaBucket.deleteBlob(pathInStorage);
     } catch (error) {

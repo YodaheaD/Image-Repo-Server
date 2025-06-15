@@ -44,6 +44,19 @@ utilsRouter.get(
     res.send(data);
   }
 );
+// Return Full cache
+utilsRouter.get(
+  "/viewListOfBlobs",
+  async (req: Request, res: Response) => {
+    const blobs = await yodaheaBucket.listContBlobs();
+    if (!blobs || blobs.length === 0) {
+      Logger.error("No blobs found in the container");
+      res.status(404).send("No blobs found in the container");
+      return;
+    }
+    res.send(blobs);
+  }
+);
 
 // return number of images in the storage
 utilsRouter.get("/imagecount", async (req: Request, res: Response) => {
