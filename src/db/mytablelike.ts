@@ -165,16 +165,15 @@ export default class TableLike<Type extends TableEntity<object>> {
     return searchResult;
   }
 
- public async getDataLUNR(search: string) {
+  public async getDataLUNR(search: string) {
     if (!search) {
       // If no search is provided, return all data
-      return []
+      return [];
     }
-  
-      // Perform imageName search
-      return this.lunrSearchData(search);
-    }
-   
+
+    // Perform imageName search
+    return this.lunrSearchData(search);
+  }
 
   // Lunr.js search function for imageName and tags
   private async lunrSearchData(search: string) {
@@ -209,7 +208,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     // Map results to original objects
     const resultSet = new Set<string>();
     const searchResult = results
-      .map((res: { ref: string; }) => {
+      .map((res: { ref: string }) => {
         const match = currentCache.find(
           (item) =>
             (item.rowKey || item.imageName) === res.ref &&
@@ -246,7 +245,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     const lowerSearch = search.toLowerCase();
 
     // Search in imageName
-    const imageNameSearch = currentCache
+    let imageNameSearch = currentCache
       .filter((element: any) => {
         if (!element || !element.imageName) return false;
         return element.imageName.toLowerCase().includes(lowerSearch);
@@ -255,7 +254,7 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     // Use getFilters to get all tags and filter them by search
     const filters = await this.getFilters();
-    const tagsSearch = filters
+    let tagsSearch = filters
       .filter((tagObj: any) =>
         tagObj.tagName.toLowerCase().includes(lowerSearch)
       )
@@ -264,6 +263,16 @@ export default class TableLike<Type extends TableEntity<object>> {
     if (imageNameSearch.length === 0 && tagsSearch.length === 0) {
       Logger.error(`No results found for ${search}`);
       return [];
+    }
+
+    const limitSearch = 30; // Limit for each search
+    // limit each search to 30 results
+    if (imageNameSearch.length > limitSearch) {
+      imageNameSearch = imageNameSearch.slice(0, limitSearch);
+    }
+    // limit tags search to 30 results
+    if (tagsSearch.length > limitSearch) {
+      tagsSearch = tagsSearch.slice(0,  limitSearch);
     }
 
     return { imageNameSearch, tagsSearch };
@@ -1339,12 +1348,12 @@ export default class TableLike<Type extends TableEntity<object>> {
         // Assign tagColor to each tag
         const startColor = 0xff0000; // Start from red (#ff0000)
         //const increment = 0x000a0a; // Smaller increment for smoother color transition
-         const increment = 0x001122; // Increment by this hex value for each tag
+        const increment = 0x001122; // Increment by this hex value for each tag
         tags.forEach((tag, idx) => {
           let color = (startColor + increment * idx) & 0xffffff;
           tag.tagColor = `#${color.toString(16).padStart(6, "0")}`;
         });
- 
+
         // set the cache
         myCache.set(`dataCache${this.tableName}Filters`, tags, 10000);
 

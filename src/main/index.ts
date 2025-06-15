@@ -93,173 +93,136 @@ dataRouter.get(
     const endingDate = enddate ? Number(enddate) : 0;
     try {
       // Get table name from req and return data from there
-      switch (tablename) {
-        case "masterdata":
-          let masterData: any = await masterTableFinal.myGetDataLimit(
-            Number(startPoint),
-            Number(limitPoint)
+      if (!tablename) {
+        Logger.error("No table name provided");
+        res.status(400).send("No table name provided");
+        return;
+      } else if (tablename === "YodaheaTable") {
+        let yodaData: any = [];
+        if (searchInput !== "") {
+          logger.info(`Searching for ${searchInput}`);
+          yodaData = await YodaheaTable.mySearchData(searchInput);
+          res.send([yodaData, [], yodaData.length]);
+          return;
+        } else {
+          logger.warn(
+            ` Querying with options: -start: ${startPoint}, -limit: ${limitPoint}, -showUnmatched: ${unmatchedChoice}, -tags: ${tagsInput}, -search: ${searchInput}, -startdate: ${new Date(
+              startingDate
+            )}, -enddate:  ${new Date(endingDate)}`
           );
 
-          let totalEntries = await masterTableFinal.numberOfImages();
-          // Sort by dateTaken
-          // Remove the any No Date values from masterData and append to the end
+          yodaData = await YodaheaTable.myGetDataLimit(
+            Number(startPoint),
+            Number(limitPoint),
+            unmatchedChoice,
+            tagsInput,
+            startingDate,
+            endingDate
+          );
+        }
+        // Sort by dateTaken
+        // Remove the any No Date values from masterData and append to the end
 
-          //
-          const yodaimages = await newimages.listImages();
-          res.send([masterData, yodaimages, totalEntries]);
-          break;
-        case "YodaheaTable":
-          let yodaData: any = [];
-          if (searchInput !== "") {
-            logger.info(`Searching for ${searchInput}`);
-            yodaData = await YodaheaTable.mySearchData(searchInput);
-            res.send([yodaData, [], yodaData.length]);
-            return;
-          } else {
-            logger.warn(` Querying with options:
-              start: ${startPoint},
-              limit: ${limitPoint},
-              showUnmatched: ${unmatchedChoice},
-              tags: ${tagsInput},
-              search: ${searchInput},
-              startdate: ${new Date(startingDate)},
-              enddate:  ${new Date(endingDate)}`);
+        //
+        const yodaimagesTotal = await newimages.listImages();
+        if (unmatchedChoice === false) {
+          console.log(` For matched data size is ${yodaData[1]}`);
+          res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+        } else {
+          console.log(` For unmatched data size is ${yodaData[1]}`);
 
-            yodaData = await YodaheaTable.myGetDataLimit(
-              Number(startPoint),
-              Number(limitPoint),
-              unmatchedChoice,
-              tagsInput,
-              startingDate,
-              endingDate
-            );
-          }
-          // Sort by dateTaken
-          // Remove the any No Date values from masterData and append to the end
-
-          //
-          const yodaimagesTotal = await newimages.listImages();
-          if (unmatchedChoice === false) {
-            console.log(` For matched data size is ${yodaData[1]}`);
-            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
-          } else {
-            console.log(` For unmatched data size is ${yodaData[1]}`);
-
-            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
-          }
-
-          break;
-
-        default:
-          Logger.error("Invalid Data Request for table for " + tablename);
-          res.status(404);
-          break; //
+          res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+        }
+      } else {
+        Logger.error("Invalid Data Request for table for " + tablename);
+        res.status(404).send("Invalid Data Request for table");
       }
     } catch (err) {
       Logger.info(err);
     } //
   }
 );
-dataRouter.get(
-  "/getAllDataTest",
+dataRouter.get("/getAllDataTest", async (req: Request, res: Response) => {
+  const {
+    start,
+    limit,
+    showUnmatched,
+    tags,
+    search,
+    tablename,
+    startdate,
+    enddate,
+  } = req.query;
+  const startPoint = start || process.env.STARTPOINT;
+  const limitPoint = limit || process.env.MAXLIMIT;
+  const unmatchedChoice = showUnmatched === "true" ? true : false;
+  const tagsInput = tags ? String(tags).split(",") : [];
+  const searchInput = search ? String(search) : "";
+  // look for start and end dates, if none make 0
+  const startingDate = startdate ? Number(startdate) : 0;
+  const endingDate = enddate ? Number(enddate) : 0;
+  try {
+    // If no table name provided, return error
+    if (!tablename) {
+      Logger.error("No table name provided");
+      res.status(400).send("No table name provided");
+      return;
+    } else if (tablename === "YodaheaTable") {
+      let yodaData: any = [];
+      if (searchInput !== "") {
+        logger.info(`Searching for in LUNR ${searchInput}`);
 
-  async (req: Request, res: Response) => {
-    const {
-      start,
-      limit,
-      showUnmatched,
-      tags,
-      search,
-      tablename,
-      startdate,
-      enddate,
-    } = req.query;
-    const startPoint = start || process.env.STARTPOINT;
-    const limitPoint = limit || process.env.MAXLIMIT;
-    const unmatchedChoice = showUnmatched === "true" ? true : false;
-    const tagsInput = tags ? String(tags).split(",") : [];
-    const searchInput = search ? String(search) : "";
-    // look for start and end dates, if none make 0
-    const startingDate = startdate ? Number(startdate) : 0;
-    const endingDate = enddate ? Number(enddate) : 0;
-    try {
-      // Get table name from req and return data from there
-      switch (tablename) {
-        case "masterdata":
-          let masterData: any = await masterTableFinal.myGetDataLimit(
-            Number(startPoint),
-            Number(limitPoint)
-          );
+        // Using LUNR for searching across all data
+        yodaData = await YodaheaTable.getDataLUNR(searchInput);
+        let totalEntries = yodaData.length;
+        logger.info(`Found ${totalEntries} entries for ${searchInput}`);
 
-          let totalEntries = await masterTableFinal.numberOfImages();
-          // Sort by dateTaken
-          // Remove the any No Date values from masterData and append to the end
+        // res.send([yodaData, [], yodaData.length]);
+        // Im forgetting to paginate here, thats why loading is taking so long its returning all data
+        let slicied = yodaData.slice(
+          Number(startPoint),
+          Number(startPoint) + Number(limitPoint)
+        );
+        console.log(
+          `Slicied data from ${slicied.length}`
+        );
+        res.send([slicied, [], totalEntries]);
+        return;
+      } else {
+        logger.warn(
+          ` Querying with options: -start: ${startPoint}, -limit: ${limitPoint}, -showUnmatched: ${unmatchedChoice}, -tags: ${tagsInput}, -search: ${searchInput}, -startdate: ${new Date(
+            startingDate
+          )}, -enddate:  ${new Date(endingDate)}`
+        );
 
-          //
-          const yodaimages = await newimages.listImages();
-          res.send([masterData, yodaimages, totalEntries]);
-          break;
-        case "YodaheaTable":
-          let yodaData: any = [];
-          if (searchInput !== "") {
-            logger.info(`Searching for in LUNR ${searchInput}`);
-            yodaData = await YodaheaTable.getDataLUNR(searchInput);
-            let totalEntries = yodaData.length;
-            logger.info(`Found ${totalEntries} entries for ${searchInput}`);
-
-            // res.send([yodaData, [], yodaData.length]);
-            // Im forgetting to paginate here, thats why loading is taking so long its returning all data
-            let slicied = yodaData.slice(
-              Number(startPoint),
-              Number(startPoint) + Number(limitPoint)
-            );
-            res.send([slicied, [],  totalEntries]);
-            return;
-          } else {
-            logger.warn(` Querying with options:
-              start: ${startPoint},
-              limit: ${limitPoint},
-              showUnmatched: ${unmatchedChoice},
-              tags: ${tagsInput},
-              search: ${searchInput},
-              startdate: ${new Date(startingDate)},
-              enddate:  ${new Date(endingDate)}`);
-
-            yodaData = await YodaheaTable.myGetDataLimit(
-              Number(startPoint),
-              Number(limitPoint),
-              unmatchedChoice,
-              tagsInput,
-              startingDate,
-              endingDate
-            );
-          }
-          // Sort by dateTaken
-          // Remove the any No Date values from masterData and append to the end
-
-          //
-          const yodaimagesTotal = await newimages.listImages();
-          if (unmatchedChoice === false) {
-            console.log(` For matched data size is ${yodaData[1]}`);
-            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
-          } else {
-            console.log(` For unmatched data size is ${yodaData[1]}`);
-
-            res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
-          }
-
-          break;
-
-        default:
-          Logger.error("Invalid Data Request for table for " + tablename);
-          res.status(404);
-          break; //
+        // If no search input, then get data from the table
+        yodaData = await YodaheaTable.myGetDataLimit(
+          Number(startPoint),
+          Number(limitPoint),
+          unmatchedChoice,
+          tagsInput,
+          startingDate,
+          endingDate
+        );
       }
-    } catch (err) {
-      Logger.info(err);
-    } //
-  }
-);
+
+      const yodaimagesTotal = await newimages.listImages();
+      if (unmatchedChoice === false) {
+        console.log(` For matched data size is ${yodaData[1]}`);
+        res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+      } else {
+        console.log(` For unmatched data size is ${yodaData[1]}`);
+
+        res.send([yodaData[0], yodaimagesTotal, yodaData[1]]);
+      }
+    } else {
+      Logger.error("Invalid Data Request for table for " + tablename);
+      res.status(404).send("Invalid Data Request for table");
+    }
+  } catch (err) {
+    Logger.info(err);
+  } //
+});
 // -> GET: get  single data from Azure Table
 dataRouter.get(
   "/getData/:tableName/:imageName",
