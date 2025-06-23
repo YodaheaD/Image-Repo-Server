@@ -10,7 +10,10 @@ import dotenv from "dotenv";
 dotenv.config();
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING || "";
 const client = BlobServiceClient.fromConnectionString(connectionString);
-
+type listImageOpts = {
+  withSizes?: boolean;
+  withLastMod?: boolean;
+};
 const imageCache = new NodeCache();
 export class BlobLike {
   constructor(public readonly containerName: string) {}
@@ -52,18 +55,28 @@ export class BlobLike {
     }
     return blobArray;
   }
+public async listImages(options: listImageOpts = {}) {
+  const containerClient = client.getContainerClient(this.containerName);
+  let images: any[] = [];
 
-  public async listImages() {
-    const containerClient = client.getContainerClient(this.containerName);
-    let blobArray: string[] = [];
-    for await (const blob of containerClient.listBlobsFlat()) {
-      blobArray.push(blob.name);
+  for await (const blob of containerClient.listBlobsFlat()) {
+    let image: any = { name: blob.name };
+
+    if (options.withSizes) {
+      image.size = blob.properties.contentLength;
     }
-    if (blobArray.length === 0) {
-      return "No images found";
+    if (options.withLastMod) {
+      image.lastModified = blob.properties.lastModified;
     }
-    return blobArray;
+
+    images.push(image);
+  } 
+
+  if (images.length === 0) {
+    return "No images found";
   }
+  return images;
+}
   // -> Returns a list of the images without metadata
 
   // so, if we have an image uploaded to the blob with an exisiting name
@@ -73,7 +86,7 @@ export class BlobLike {
   public async download(name: string) {
     const blobClient = this.getClient(name);
     return await (await blobClient).downloadToBuffer();
-  }
+  } 
 
   // -> Reciving a multer with mutiple files and uploading them to the blob
   public async uploadMulter(files: any) {

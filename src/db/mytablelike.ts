@@ -244,69 +244,74 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     const lowerSearch = search.toLowerCase();
 
-    // Use lunr to search imageName and tags
-    const idx = lunr(function (this: lunr.Builder) {
-      this.ref("rowKey");
-      this.field("imageName");
-      this.field("tags");
-      currentCache.forEach((doc: any) => {
-        if (doc && doc.imageName) {
-          this.add({
-            rowKey: doc.rowKey || doc.imageName,
-            imageName: doc.imageName,
-            tags: doc.tags || "",
-          });
+    try {
+      // Use lunr to search imageName and tags
+      const idx = lunr(function (this: lunr.Builder) {
+        this.ref("rowKey");
+        this.field("imageName");
+        this.field("tags");
+        currentCache.forEach((doc: any) => {
+          if (doc && doc.imageName) {
+            this.add({
+              rowKey: doc.rowKey || doc.imageName,
+              imageName: doc.imageName,
+              tags: doc.tags || "",
+            });
+          }
+        });
+      });
+
+      // Search for imageName matches
+      const imageNameResults = idx.search(`imageName:*${lowerSearch}*`);
+
+      // Keep the order as returned by lunr (by relevance)
+      let imageNameSearch = imageNameResults
+        .map((result: any) =>
+          currentCache.find(
+            (item: any) => (item.rowKey || item.imageName) === result.ref
+          )
+        )
+        .filter(Boolean);
+
+      // Search for tag matches using lunr
+      const tagsResults = idx.search(`tags:*${lowerSearch}*`);
+
+      // Get all tags from matched documents, keep order as found
+      let tagsSearch: string[] = [];
+      tagsResults.forEach((result: any) => {
+        const item = currentCache.find(
+          (doc: any) => (doc.rowKey || doc.imageName) === result.ref
+        );
+        if (item && item.tags) {
+          tagsSearch.push(...item.tags.split(",").map((t: string) => t.trim()));
         }
       });
-    });
+      // Deduplicate and filter tags by search, keep order as found
+      const seenTags = new Set<string>();
+      tagsSearch = tagsSearch.filter((tag) => {
+        const match = tag.toLowerCase().includes(lowerSearch) && !seenTags.has(tag);
+        if (match) seenTags.add(tag);
+        return match;
+      });
 
-    // Search for imageName matches
-    const imageNameResults = idx.search(`imageName:*${lowerSearch}*`);
-
-    // Keep the order as returned by lunr (by relevance)
-    let imageNameSearch = imageNameResults
-      .map((result: any) =>
-        currentCache.find(
-          (item: any) => (item.rowKey || item.imageName) === result.ref
-        )
-      )
-      .filter(Boolean);
-
-    // Search for tag matches using lunr
-    const tagsResults = idx.search(`tags:*${lowerSearch}*`);
-
-    // Get all tags from matched documents, keep order as found
-    let tagsSearch: string[] = [];
-    tagsResults.forEach((result: any) => {
-      const item = currentCache.find(
-        (doc: any) => (doc.rowKey || doc.imageName) === result.ref
-      );
-      if (item && item.tags) {
-        tagsSearch.push(...item.tags.split(",").map((t: string) => t.trim()));
+      if (imageNameSearch.length === 0 && tagsSearch.length === 0) {
+        Logger.error(`No results found for ${search}`);
+        return [];
       }
-    });
-    // Deduplicate and filter tags by search, keep order as found
-    const seenTags = new Set<string>();
-    tagsSearch = tagsSearch.filter((tag) => {
-      const match = tag.toLowerCase().includes(lowerSearch) && !seenTags.has(tag);
-      if (match) seenTags.add(tag);
-      return match;
-    });
 
-    if (imageNameSearch.length === 0 && tagsSearch.length === 0) {
-      Logger.error(`No results found for ${search}`);
-      return [];
-    }
+      const limitSearch = 30;
+      if (imageNameSearch.length > limitSearch) {
+        imageNameSearch = imageNameSearch.slice(0, limitSearch);
+      }
+      if (tagsSearch.length > limitSearch) {
+        tagsSearch = tagsSearch.slice(0, limitSearch);
+      }
 
-    const limitSearch = 30;
-    if (imageNameSearch.length > limitSearch) {
-      imageNameSearch = imageNameSearch.slice(0, limitSearch);
+      return { imageNameSearch, tagsSearch };
+    } catch (err: any) {
+      Logger.error(`Error in extendedSearch lunr: ${err?.message || err}`);
+      return { imageNameSearch: [], tagsSearch: [], error: "Search failed" };
     }
-    if (tagsSearch.length > limitSearch) {
-      tagsSearch = tagsSearch.slice(0, limitSearch);
-    }
-
-    return { imageNameSearch, tagsSearch };
   }
 
   // -> 'myGetDataLimit()' -- similar to myGetData() but with a limit
