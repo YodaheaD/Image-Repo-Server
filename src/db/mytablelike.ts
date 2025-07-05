@@ -169,7 +169,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     if (!search) {
       // If no search is provided, return all data
       return [];
-    }
+    } 
 
     // Perform imageName search
     return this.lunrSearchData(search);

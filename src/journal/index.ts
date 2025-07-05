@@ -8,43 +8,6 @@ export const journalRouter: Router = Router();
 /// ** POST /makefolder
 
 journalRouter.post("/makefolder", async (req, res) => {
-  const { nameoffolder } = req.query;
-  if (!nameoffolder) {
-    return res.status(400).send("Please provide a folder name");
-  }
-  const data = {
-    partitionKey: "journal",
-    rowKey: nameoffolder + "-Untitled",
-    folder: nameoffolder,
-    name: "Untitled",
-    images: "",
-  };
-  const allData: any = await journalTable.straightQuery();
-  console.log(` Creating folder: ${nameoffolder}`);
-  const allrowkeys = allData.map((data: { rowKey: string }) => data.rowKey);
-
-  const Rowkey = data.rowKey;
-  if (allrowkeys.includes(Rowkey)) {
-    console.log(`RowKey ${Rowkey} already exists, skipping insertion`);
-    return res.status(400).send(`RowKey ${Rowkey} already exists`);
-  } else {
-    console.log("Inserting data");
-    await journalTable.insertEntity(data);
-
-    // now create a file in blob folder/name.txt
-    try {
-      // create a text file with name.txt and upload it to blob, file should be empty
-      const blobName = nameoffolder + "/Untitled.txt";
-      const content = Buffer.from("");
-      await journalBucket.uploadBuffer(blobName, content);
-      return res.status(200).send("Data inserted");
-    } catch {
-      console.log("Error in creating a text file for folder");
-      return res.status(400).send("Error in creating a text file for folder");
-    }
-  }
-});
-journalRouter.post("/makefolderNEW", async (req, res) => {
   const { nameoffolder, startDate, endDate, tripNumber } = req.query;
   if (!nameoffolder) {
     return res.status(400).send("Please provide a folder name");

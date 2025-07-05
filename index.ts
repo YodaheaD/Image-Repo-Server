@@ -3,7 +3,7 @@ import Logger from "./src/utils/logger";
 import cookieParser from "cookie-parser";
 import { utilsRouter } from "./src/utilities";
 import cors from "cors";
-import { auditRouter } from "./src/audits";
+
 import { dataRouter } from "./src/main";
 import { imagesRouter } from "./src/images";
 import { journalRouter } from "./src/journal";
@@ -15,7 +15,6 @@ import { journalRouter } from "./src/journal";
   * 
  * -> " Main Router " :  dataRouter
  * -> " Utilities Router " :  utilsRouter
- * -> " Audit Router " :  auditRouter
  * -> " Images Router " :  imagesRouter
  * 
  */
@@ -29,8 +28,8 @@ app.use(cookieParser());
 app.use(cors());
 //
 app.use("/main", dataRouter);
-app.use("/utilities", utilsRouter);
-app.use("/audits", auditRouter);
+app.use("/utils", utilsRouter);
+
 app.use("/images", imagesRouter);
 app.use("/journal", journalRouter);
 
