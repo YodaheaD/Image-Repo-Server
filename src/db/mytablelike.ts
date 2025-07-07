@@ -73,6 +73,17 @@ export default class TableLike<Type extends TableEntity<object>> {
     return this.client?.listEntities<Type>();
   }
 
+  public async returnTableSize() {
+    const entities = this.client?.listEntities();
+    let count = 0;
+    if (entities) {
+      for await (const entity of entities) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   // -> 'getDataOrCahce()' -- serves either the cache or the data from the table
   private async getDataOrCache() {
     Logger.warn(` ${this.tableName} - Searching for  Cache ....`);
@@ -169,7 +180,7 @@ export default class TableLike<Type extends TableEntity<object>> {
     if (!search) {
       // If no search is provided, return all data
       return [];
-    } 
+    }
 
     // Perform imageName search
     return this.lunrSearchData(search);
@@ -289,7 +300,8 @@ export default class TableLike<Type extends TableEntity<object>> {
       // Deduplicate and filter tags by search, keep order as found
       const seenTags = new Set<string>();
       tagsSearch = tagsSearch.filter((tag) => {
-        const match = tag.toLowerCase().includes(lowerSearch) && !seenTags.has(tag);
+        const match =
+          tag.toLowerCase().includes(lowerSearch) && !seenTags.has(tag);
         if (match) seenTags.add(tag);
         return match;
       });
@@ -321,7 +333,11 @@ export default class TableLike<Type extends TableEntity<object>> {
     useUnmatched?: boolean,
     tags?: string[],
     startdate?: number,
-    enddate?: number
+    enddate?: number,
+    countryInput?: string,
+    tripInput?: string,
+    specialInput?: string,
+    seeOlderFirst?: boolean
   ) {
     // if no search is provided, return all data
 
@@ -407,10 +423,11 @@ export default class TableLike<Type extends TableEntity<object>> {
         let masterData = intialData.filter(
           (item: any) => item.dateTaken !== "No Date"
         );
-
         masterData = masterData.sort(
-          //  (a: any, b: any) => Number(a.dateTaken) - Number(b.dateTaken)
-          (a: any, b: any) => Number(b.dateTaken) - Number(a.dateTaken)
+          (a: any, b: any) =>
+            seeOlderFirst
+              ? Number(a.dateTaken) - Number(b.dateTaken) // Oldest first
+              : Number(b.dateTaken) - Number(a.dateTaken) // Newest first
         );
 
         // masterData = masterData.concat(noDates);
@@ -433,6 +450,71 @@ export default class TableLike<Type extends TableEntity<object>> {
 
         //return this.getDataOrCache();
         break;
+      }
+      case "datesTable": {
+        // no pre-process, just slice the data and return
+        let intialData: any = await this.manualGetData();
+
+        // Check for specialInput "DayTrip" first (highest priority)
+        if (
+          specialInput &&
+          typeof specialInput === "string" &&
+          specialInput.trim() === "DayTrip"
+        ) {
+          intialData = intialData.filter((item: any) => {
+            if (!item.startDate || !item.endDate) return false;
+            return String(item.startDate) === String(item.endDate);
+          });
+          // If DayTrip is found, disregard countryInput and tripInput
+          console.log(
+            `[datesTable] DayTrip filter applied, ignoring country/trip filters.`
+          );
+        } else {
+          // Filter by countryInput if provided
+          if (
+            countryInput &&
+            typeof countryInput === "string" &&
+            countryInput.length > 0
+          ) {
+            const countryArr = countryInput
+              .split(",")
+              .map((c) => c.trim().toLowerCase());
+            console.log(`[datesTable] Filtering by country:`, countryArr);
+            intialData = intialData.filter((item: any) =>
+              countryArr.includes((item.country || "").toLowerCase())
+            );
+          } else {
+            console.log(`[datesTable] No country filter applied.`);
+          }
+
+          // Filter by tripInput if provided
+          if (
+            tripInput &&
+            typeof tripInput === "string" &&
+            tripInput.length > 0
+          ) {
+            const tripArr = tripInput
+              .split(",")
+              .map((t) => t.trim().toLowerCase());
+            console.log(`[datesTable] Filtering by trip:`, tripArr);
+            intialData = intialData.filter((item: any) =>
+              tripArr.includes((item.trip || "").toLowerCase())
+            );
+          } else {
+            console.log(`[datesTable] No trip filter applied.`);
+          }
+        }
+
+        // sort based on startdate (which is a unix string)
+        intialData = intialData.sort(
+          (a: any, b: any) => Number(a.startDate) - Number(b.startDate)
+        );
+        Logger.warn(
+          `Getting data from ${this.tableName} table with ${intialData.length} enetries and with Start limit ${start} - ${limit} ....`
+        );
+        const finalData = intialData.slice(start, start + limit);
+        //console.log(` All Rowkeys: ${allrowkeys}`);
+        return finalData;
       }
 
       case "audits": {
@@ -501,19 +583,23 @@ export default class TableLike<Type extends TableEntity<object>> {
 
   // -> 'fullDeleteProcess()'
   // Function for deleting entries at specific id in Azure Table.
-  public async fullDeleteProcess(entity: any) {
-    const deleteid = entity.imageName;
-    const pathInStorage = entity.imagePath.includes(".")
-      ? entity.imagePath.split(".")[0]
-      : entity.imagePath;
-    Logger.warn(
-      `Deleting data  ${entity.imageName} with path ${pathInStorage} ....`
-    );
+  public async fullDeleteProcess(imagePathInitial: any) {
+    // rmeove and splut if a .
+    if (!imagePathInitial || imagePathInitial === "") {
+      Logger.error(`Invalid imagePath: ${imagePathInitial}`);
+      return "Error: Invalid imagePath";
+    }
+    const hasPeriod = imagePathInitial.includes(".");
+    //
+    const imagePath = hasPeriod
+      ? imagePathInitial.split(".")[0]
+      : imagePathInitial;
+    Logger.warn(`Deleting data  ${imagePath}   ....`);
 
     // archive the image by uploading its data into the deletedImages bucket
- 
+
     try {
-      await yodaheaBucket.deleteBlob(pathInStorage);
+      await yodaheaBucket.deleteBlob(imagePath);
     } catch (error) {
       Logger.error(` Error deleting entity: ${error}`);
       return "Error deleting entity";
@@ -521,8 +607,8 @@ export default class TableLike<Type extends TableEntity<object>> {
 
     // now dlete entry from table
     try {
-      await this.client?.deleteEntity("masterFinal", "RKey-" + pathInStorage);
-      Logger.info(` Deleted entity: ${entity.imageName}`);
+      await this.client?.deleteEntity("masterFinal", "RKey-" + imagePath);
+      Logger.info(` Deleted entity: ${imagePath}`);
     } catch (error) {
       Logger.error(` Error deleting entity: ${error}`);
       return "Error deleting entity";
@@ -531,11 +617,11 @@ export default class TableLike<Type extends TableEntity<object>> {
     // update cache
     const currentCache: any = myCache.get(`dataCache${this.tableName}`);
     const deleteOld = currentCache.filter(
-      (element: any) => element.rowKey !== "RKey-" + pathInStorage
+      (element: any) => element.rowKey !== "RKey-" + imagePath
     );
     myCache.set(`dataCache${this.tableName}`, deleteOld, 10000);
     Logger.info(
-      ` Done deleting entity: ${entity.imageName} with path ${entity.imagePath}, original cache size: ${currentCache.length} new cache size: ${deleteOld.length}`
+      ` Done deleting entity: ${imagePath} with path   original cache size: ${currentCache.length} new cache size: ${deleteOld.length}`
     );
 
     return "Success Deleting";
@@ -704,6 +790,43 @@ export default class TableLike<Type extends TableEntity<object>> {
         }
       }
     }
+  }
+
+  public async auditSimple(
+    type: "deletion" | "title change",
+    imagePathChanged: string
+  ) {
+    // keep other fields empty
+    const unixTime = new Date().getTime();
+
+    const rowKey = `RKey-${imagePathChanged}-${unixTime}-${type}`;
+    const entity: auditsTypes = {
+      partitionKey: `Audits`,
+      rowKey: rowKey,
+      auditTime: unixTime.toString(),
+      imageName: imagePathChanged,
+      description: "",
+      auditor: "",
+      imagePath: imagePathChanged,
+      approvedBy: "",
+      auditApprover: "Unapproved",
+      auditType: type,
+      previousValue: "",
+      newValue: "",
+    };
+
+    try {
+      await this.client?.createEntity(entity);
+      return "Audit Created";
+    } catch (error) {
+      console.log(` ERROR creating audit for Rowkey: ${rowKey}+ ${error}`);
+    }
+  }
+
+  async updateEntityBasic(entity: any) {
+    // just a striaght update with azure
+    await this.client?.updateEntity(entity);
+    return "Success";
   }
 
   async updateEntity(entity: any) {
@@ -1537,6 +1660,68 @@ export default class TableLike<Type extends TableEntity<object>> {
     // pushing all data into array 'holder' which is then filtered
   }
 
+  /** For Dates */
+
+  public async getDateFilters(skipCache: boolean = false) {
+    // if table if not datesTable we dont want to run this, so return null
+    if (this.tableName !== "datesTable") {
+      Logger.error(`Error: Cannot use datesFilters on table ${this.tableName}`);
+      return null;
+    }
+
+    const cacheKey = `dataCache${this.tableName}Dates`;
+    if (!skipCache) {
+      const checkCache: any = myCache.get(cacheKey);
+      if (checkCache) {
+        Logger.warn(`Cache Found for dates of table ${this.tableName} ....`);
+        return checkCache;
+      }
+    }
+
+    const allData = await this.client?.listEntities();
+
+    if (!allData) {
+      Logger.error(`No entities found in ${this.tableName}`);
+      return [];
+    }
+
+    // process allData to create the desired filter structure
+    const filters = [];
+
+    // Convert async iterable to array
+    const allDataArr: any[] = [];
+    for await (const item of allData) {
+      allDataArr.push(item);
+    }
+
+    const columns = [
+      //"city",
+      "country",
+      "trip",
+    ];
+
+    for (const column of columns) {
+      const values = Array.from(
+        new Set(allDataArr.map((item: any) => item[column]))
+      ).filter(Boolean);
+      filters.push({ column, values });
+    }
+    /** Also add this manual part */
+    const manual = {
+      column: "Special",
+      values: ["DayTrip"],
+    };
+
+    filters.push(manual);
+    // cache the result
+    myCache.set(cacheKey, filters);
+
+    return filters;
+  }
+
+  /**
+
+    /** END of Dates */
   /** For Journal Entries */
 
   public async journalChangetitle(
@@ -1584,6 +1769,54 @@ export default class TableLike<Type extends TableEntity<object>> {
     } catch (error) {
       logger.error(`Error occured during title change, please try again`);
       return null;
+    }
+  }
+
+  // function that recived imageName and newdateTaken, updates the dateTaken of the image in the table
+  /**
+   * // chnage dateTaken for multiple images
+/**
+ * INcoming in data:
+ * [{"imageName":"22C9D6BD-A414-4CAC-B890-85F2F6DEF68D","newdateTaken":"1623470400000"},{"imageName":"1D8D4355-2137-4618-94E8-3F9E4C64B101","newdateTaken":"1623470400001"},{"imageName":"3789AD5B-62EB-4A6A-80CE-77F165C93263","newdateTaken":"1623470400002"},{"imageName":"C969FEED-5815-45A9-AE45-316D92D8AA1D","newdateTaken":"1623470400003"},{"imageName":"F3EDA8EC-8076-4703-98D6-1E1C4F308EDD","newdateTaken":"1623470400004"}]
+ */
+
+  public async changeDateTakenForImages(
+    data: { imageName: string; newdateTaken: string }[]
+  ) {
+    //Step 1: Check for cache, return null if not found
+    const currentCache: any = myCache.get(`dataCache${this.tableName}`);
+    if (!currentCache) {
+      Logger.error(` No Cache Found for ${this.tableName}`);
+      return "Error: No Cache Found";
+    }
+    // Step 2: loop through the data array
+    for (const item of data) {
+      const currentImage = item.imageName;
+
+      // Step 3: Find the entity in the currentCache
+      const entity = currentCache.find(
+        (element: any) => element.imageName === currentImage
+      );
+      if (!entity) {
+        Logger.error(`Entity not found for image: ${currentImage}`);
+        continue;
+      }
+
+      // Step 4: Update the dateTaken field
+      entity.dateTaken = item.newdateTaken;
+
+      // Step 5: Update the entity in the table
+      await this.client?.updateEntity(entity);
+    }
+
+    // refresh the cache after updating
+    try {
+      this.rebuildCache();
+      Logger.info(`Cache rebuilt after updating dateTaken for images`);
+      return "Success: DateTaken updated for images";
+    } catch (error) {
+      Logger.error(`Error rebuilding cache after updating dateTaken: ${error}`);
+      return "Error: Could not rebuild cache";
     }
   }
 }

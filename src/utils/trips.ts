@@ -47,3 +47,15 @@ const tripTimeline: tripTimelineType[] = [
     tripDesc: "Trip to Colombia, Panama and Guatemala",
   },
 ];
+
+const listOfCountries = [
+  "Mexico",
+  "Spain",
+  "Argentina",
+  "Turkey",
+  "Greece",
+  "Italy",
+  "Colombia",
+  "Panama",
+  "Guatemala",
+]
